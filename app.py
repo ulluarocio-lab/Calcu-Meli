@@ -20,18 +20,23 @@ def predecir_categoria(titulo):
         return "Error API"
 
 def calcular_precio_sugerido(costo, tipo, cond, envio_gratis, margen_deseado):
+    """Calcula el precio final necesario para obtener el % de margen limpio deseado"""
     porcentaje_comision = 0.15 if tipo == "Clásica" else 0.25
     porcentaje_impuestos = 0.03 if cond == "Monotributo" else 0.135
     margen_decimal = margen_deseado / 100.0
     
     denominador = 1 - porcentaje_comision - porcentaje_impuestos - margen_decimal
-    if denominador <= 0: return 0 
+    
+    if denominador <= 0:
+        return 0  # El margen deseado es matemáticamente imposible con las retenciones actuales
         
+    # Iteramos para estabilizar los costos que cambian según tramos de precio (envíos y costos fijos)
     precio_sug = costo / denominador
     for _ in range(5):  
         fijo = COSTO_FIJO_UNIDAD if precio_sug < UMBRAL_COSTO_FIJO else 0
         envio = COSTO_ENVIO_PROMEDIO if (envio_gratis or precio_sug >= UMBRAL_ENVIO_GRATIS) else 0
         precio_sug = (costo + fijo + envio) / denominador
+        
     return precio_sug
 
 def calcular_metricas(costo, precio, tipo, cond, envio_gratis):
@@ -52,7 +57,7 @@ def calcular_metricas(costo, precio, tipo, cond, envio_gratis):
 
     return comision, fijo, envio, impuestos, costos_meli, ganancia, margen, markup, quiebre
 
-# --- CONFIGURACIÓN DE PÁGINA ---
+# --- CONFIGURACIÓN DE PÁGINA (COMPACTA) ---
 st.set_page_config(page_title="Calculadora ML", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
@@ -68,30 +73,34 @@ with st.sidebar:
     
     producto = st.text_input("Producto:")
     if producto:
-        st.caption(f"🏷️ Categoría: {predecir_categoria(producto)}")
+        cat = predecir_categoria(producto)
+        st.caption(f"🏷️ Categoría: {cat}")
+    else:
+        st.caption("🏷️ Categoría: Ingresa un producto")
         
     st.divider()
-    # 1. Primero pedimos el costo para poder calcular el sugerido
+    # 1. Costo arranca vacío para obligar a ingresarlo primero
     costo_input = st.number_input("Costo de Compra ($)", min_value=0.0, value=None, step=100.0, placeholder="Ej: 10650")
     
     st.subheader("🎯 Objetivo de Ganancia")
     margen_obj = st.slider("Margen Limpio Deseado (%)", min_value=1, max_value=60, value=20)
     
     st.divider()
-    # 2. Luego dejamos que el usuario ingrese su precio final de venta
+    # 2. Precio arranca vacío para ingresarlo después de ver la sugerencia
     precio_input = st.number_input("Tu Precio de Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Ej: 45000")
     
     st.divider()
     tipo_pub = st.selectbox("Publicación", ["Clásica", "Premium"])
     cond_fiscal = st.selectbox("Impuestos", ["Monotributo", "Responsable Inscripto"])
     
+    # Checkbox inteligente que no da error si el precio está vacío
     precio_ref = precio_input if precio_input is not None else 0
     envio = st.checkbox("Ofrecer Envío Gratis", value=(precio_ref >= UMBRAL_ENVIO_GRATIS))
 
 # --- PANTALLA PRINCIPAL ---
 st.title("📊 Panel de Decisión")
 
-# FASE 1: Esperar el Costo
+# --- FASE 1: ESPERAR EL COSTO ---
 if costo_input is None:
     st.info("👈 Ingresa tu **Costo de Compra** en el panel izquierdo para calcular el Precio Sugerido.")
     st.stop()
@@ -102,22 +111,23 @@ precio_sugerido = calcular_precio_sugerido(costo, tipo_pub, cond_fiscal, envio, 
 # Mostrar sugerencia inmediatamente
 st.subheader("💡 Precio Sugerido")
 if precio_sugerido > 0:
-    st.success(f"Para ganar un **{margen_obj}%** limpio, deberías publicar a: **${precio_sugerido:,.0f}**")
+    st.success(f"Para lograr un **{margen_obj}%** de ganancia limpia, deberías publicar a **${precio_sugerido:,.0f}**")
 else:
-    st.error(f"❌ Es matemáticamente imposible sacar un {margen_obj}% de margen con estas comisiones.")
+    st.error(f"❌ Es matemáticamente imposible sacar un {margen_obj}% de margen con las comisiones actuales de Mercado Libre.")
 
 st.divider()
 
-# FASE 2: Esperar el Precio de Venta para el análisis completo
+# --- FASE 2: ESPERAR EL PRECIO DE VENTA ---
 if precio_input is None:
     st.info("👈 Ahora ingresa **Tu Precio de Venta** en el panel izquierdo para ver el análisis de rentabilidad real y el semáforo.")
     st.stop()
 
 precio = precio_input
 
-# --- CÁLCULOS FINALES Y SEMÁFORO ---
+# Calcular todas las métricas reales
 com, fijo, env, imp, tot_meli, gan, mar, mkp, quieb = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio)
 
+# 1. SEMÁFORO DE RENTABILIDAD
 if gan <= 0:
     st.error(f"🚨 NO RENTABLE: Estás perdiendo ${abs(gan):,.0f} por unidad.")
 elif mar < 10:
@@ -125,7 +135,7 @@ elif mar < 10:
 else:
     st.success(f"✅ PRODUCTO RENTABLE: Margen saludable ({mar:.1f}%).")
 
-# --- MÉTRICAS CLAVE ---
+# 2. MÉTRICAS CLAVE
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Ganancia Limpia", f"${gan:,.0f}")
 col2.metric("Margen Actual", f"{mar:.1f}%")
@@ -134,7 +144,7 @@ col4.metric("Punto de Quiebre (0%)", f"${quieb:,.0f}")
 
 st.divider()
 
-# --- DESGLOSE DEL DINERO ---
+# 3. DESGLOSE DEL DINERO
 st.subheader("¿A dónde va el dinero de tu venta actual?")
 c1, c2, c3 = st.columns(3)
 
