@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import math
 import pandas as pd
+from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURACIÓN DE PARÁMETROS MELI (2026) ---
 UMBRAL_ENVIO_GRATIS = 33000
