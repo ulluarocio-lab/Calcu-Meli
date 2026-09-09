@@ -14,13 +14,25 @@ def predecir_categoria(titulo):
         if response.status_code == 200:
             data = response.json()
             if data and len(data) > 0:
-                return data[0].get("domain_name", "Desconocida")
+                categoria = data[0].get("domain_name", "Desconocida")
+                rubros_tecnologia = ["celulares", "computación", "notebooks", "televisores", "tablets", "consolas"]
+                iva = "10.5%" if any(tech in categoria.lower() for tech in rubros_tecnologia) else "21%"
+                return f"{categoria} (IVA {iva})"
         return "No encontrada"
     except:
         return "Error API"
 
+def obtener_comision(tipo_pub):
+    """Devuelve el porcentaje de comisión según el tipo de publicación y cuotas"""
+    if tipo_pub == "Clásica (Sin cuotas)":
+        return 0.15
+    elif tipo_pub == "Premium (3 Cuotas)":
+        return 0.20
+    else:  # Premium (6 Cuotas)
+        return 0.25
+
 def calcular_precio_sugerido(costo, tipo, cond, envio_gratis, margen_deseado, acos_pct):
-    porcentaje_comision = 0.15 if tipo == "Clásica" else 0.25
+    porcentaje_comision = obtener_comision(tipo)
     porcentaje_impuestos = 0.03 if cond == "Monotributo" else 0.135
     margen_decimal = margen_deseado / 100.0
     porcentaje_ads = acos_pct / 100.0
@@ -39,7 +51,7 @@ def calcular_precio_sugerido(costo, tipo, cond, envio_gratis, margen_deseado, ac
     return precio_sug
 
 def calcular_metricas(costo, precio, tipo, cond, envio_gratis, acos_pct):
-    porcentaje_comision = 0.15 if tipo == "Clásica" else 0.25
+    porcentaje_comision = obtener_comision(tipo)
     porcentaje_impuestos = 0.03 if cond == "Monotributo" else 0.135
     porcentaje_ads = acos_pct / 100.0
 
@@ -83,14 +95,11 @@ with st.sidebar:
     with colA:
         costo_input = st.number_input("Costo ($)", min_value=0.0, value=None, step=100.0, placeholder="Ej: 15000")
     with colB:
-        # Ahora indicamos visualmente que dejarlo en blanco es opcional
         precio_input = st.number_input("Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Opcional")
     
-    colC, colD = st.columns(2)
-    with colC:
-        tipo_pub = st.selectbox("Publicación", ["Clásica", "Premium"])
-    with colD:
-        cond_fiscal = st.selectbox("Impuestos", ["Monotributo", "Inscripto"])
+    # Selector de publicación actualizado con opciones de cuotas
+    tipo_pub = st.selectbox("Publicación y Cuotas", ["Clásica (Sin cuotas)", "Premium (3 Cuotas)", "Premium (6 Cuotas)"])
+    cond_fiscal = st.selectbox("Impuestos", ["Monotributo", "Inscripto"])
     
     precio_ref = precio_input if precio_input is not None else 0
     envio = st.checkbox("Ofrecer Envío Gratis", value=(precio_ref >= UMBRAL_ENVIO_GRATIS))
@@ -98,8 +107,8 @@ with st.sidebar:
     st.divider()
     
     st.markdown("### 🎯 Objetivos y Ads")
-    margen_obj = st.slider("Margen Deseado (%)", min_value=1, max_value=60, value=20)
-    acos_input = st.slider("ACOS - Ads (%)", min_value=0, max_value=40, value=0)
+    margen_obj = st.slider("Margen Deseado (%)", min_value=1, max_value=60, value=20, help="El porcentaje de ganancia limpia que deseas llevarte al bolsillo respecto al precio final.")
+    acos_input = st.slider("ACOS - Ads (%)", min_value=0, max_value=40, value=0, help="Advertising Cost of Sales: Porcentaje del precio del producto que se destina a pagar publicidad en Mercado Libre.")
     
     if acos_input == 0:
         st.info("💡 **Sin Ads:** Ideal probar con 5-10%.")
@@ -137,38 +146,38 @@ else:
 # --- CÁLCULOS ---
 com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
 
-st.write("") # Espaciador ligero
+st.write("") 
 col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     if gan > 0:
-        st.success(f"**Ganancia**\n### ${gan:,.0f}")
+        st.success(f"**Ganancia**\n### ${gan:,.0f}", help="Dinero real y limpio que entra a tu bolsillo tras descontar el costo del producto, comisiones, envíos e impuestos de ARCA.")
     else:
-        st.error(f"**Pérdida**\n### ${gan:,.0f}")
+        st.error(f"**Pérdida**\n### ${gan:,.0f}", help="Estás perdiendo dinero en esta operación.")
 
 with col2:
     if mar >= 15:
-        st.success(f"**Margen**\n### {mar:.1f}%")
+        st.success(f"**Margen**\n### {mar:.1f}%", help="Porcentaje de ganancia neta calculado sobre el precio final de venta. Refleja la rentabilidad de la operación.")
     elif mar >= 10:
-        st.warning(f"**Margen**\n### {mar:.1f}%")
+        st.warning(f"**Margen**\n### {mar:.1f}%", help="Porcentaje de ganancia neta calculado sobre el precio final de venta.")
     else:
-        st.error(f"**Margen**\n### {mar:.1f}%")
+        st.error(f"**Margen**\n### {mar:.1f}%", help="Porcentaje de ganancia neta calculado sobre el precio final de venta.")
 
 with col3:
-    st.info(f"**Markup**\n### {mkp:.1f}%")
+    st.info(f"**Markup**\n### {mkp:.1f}%", help="Retorno sobre la Inversión. Es el porcentaje que aumentó tu dinero inicial (Ganancia dividida por tu Costo de Compra).")
 
 with col4:
-    st.info(f"**Quiebre (0%)**\n### ${quieb:,.0f}")
+    st.info(f"**Quiebre (0%)**\n### ${quieb:,.0f}", help="Punto de Equilibrio (Break-even). Es el precio mínimo al que debes publicar para no perder ni ganar un solo peso.")
 
 with col5:
     if acos_input == 0:
-        st.info(f"**ROAS (Ads)**\n### N/A")
+        st.info(f"**ROAS (Ads)**\n### N/A", help="Activa la inversión publicitaria (ACOS) para ver esta métrica.")
     elif roas >= 10:
-        st.success(f"**ROAS (Ads)**\n### {roas:.1f}x")
+        st.success(f"**ROAS (Ads)**\n### {roas:.1f}x", help="Return on Ad Spend. Por cada $1 peso invertido en publicidad, generas este monto en ventas.")
     elif roas >= 6.6:
-        st.warning(f"**ROAS (Ads)**\n### {roas:.1f}x")
+        st.warning(f"**ROAS (Ads)**\n### {roas:.1f}x", help="Return on Ad Spend. Por cada $1 peso invertido en publicidad, generas este monto en ventas.")
     else:
-        st.error(f"**ROAS (Ads)**\n### {roas:.1f}x")
+        st.error(f"**ROAS (Ads)**\n### {roas:.1f}x", help="Return on Ad Spend. Por cada $1 peso invertido en publicidad, generas este monto en ventas.")
 
 st.divider()
 
@@ -179,8 +188,8 @@ c1, c2, c3 = st.columns(3)
 with c1:
     st.info(f"**Tu Costo (Mercadería):**\n### ${costo:,.0f}")
 with c2:
-    st.warning(f"**Se lo queda ML / AFIP / Ads:**\n### ${tot_meli:,.0f}")
-    st.caption(f"Comisión: ${com:,.0f} | Envío: ${env:,.0f} | Fijo: ${fijo:,.0f} | Imp: ${imp:,.0f} | Ads: ${costo_ads:,.0f}")
+    st.warning(f"**Se lo queda ML / ARCA / Ads:**\n### ${tot_meli:,.0f}")
+    st.caption(f"Comisión: ${com:,.0f} | Envío: ${env:,.0f} | Fijo: ${fijo:,.0f} | Imp (ARCA): ${imp:,.0f} | Ads: ${costo_ads:,.0f}")
 with c3:
     if gan > 0:
         st.success(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
