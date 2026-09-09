@@ -61,23 +61,18 @@ def calcular_metricas(costo, precio, tipo, cond, envio_gratis, acos_pct):
 
     return comision, fijo, envio, impuestos, costo_ads, costos_meli, ganancia, margen, markup, quiebre, roas
 
-# --- CONFIGURACIÓN DE PÁGINA Y ESTILOS ---
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Calculadora ML", layout="wide", initial_sidebar_state="expanded")
 
-# CSS para compactar el panel lateral y ajustar tipografías
+# CSS limpio, sin márgenes negativos problemáticos
 st.markdown("""
     <style>
-    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
-    h1 { font-size: 1.8rem !important; margin-bottom: 0; }
-    h3 { font-size: 1.5rem !important; }
-    /* Compactar panel lateral */
-    [data-testid="stSidebar"] .stMarkdown { margin-bottom: -15px; }
-    [data-testid="stSidebar"] .stSlider { margin-top: -15px; margin-bottom: -20px;}
-    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0.5rem; }
+    .block-container { padding-top: 1.5rem; padding-bottom: 1.5rem; }
+    h1 { font-size: 1.8rem !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- PANEL LATERAL COMPACTO ---
+# --- PANEL LATERAL ORGANIZADO ---
 with st.sidebar:
     st.markdown("### ⚙️ Ingreso de Datos")
     
@@ -85,14 +80,13 @@ with st.sidebar:
     if producto:
         st.caption(f"🏷️ Categoría: {predecir_categoria(producto)}")
         
-    # Costo y Precio en una sola fila
+    # Agrupación en columnas para compactar sin romper el diseño
     colA, colB = st.columns(2)
     with colA:
         costo_input = st.number_input("Costo ($)", min_value=0.0, value=None, step=100.0, placeholder="Ej: 15000")
     with colB:
         precio_input = st.number_input("Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Ej: 45000")
     
-    # Publicación e Impuestos en una fila
     colC, colD = st.columns(2)
     with colC:
         tipo_pub = st.selectbox("Publicación", ["Clásica", "Premium"])
@@ -121,7 +115,7 @@ with st.sidebar:
 st.title("📊 Panel de Decisión")
 
 if costo_input is None:
-    st.info("👈 Ingresa tu **Costo de Compra** en el panel izquierdo para calcular el Precio Sugerido.")
+    st.info("👈 Ingresa tu **Costo ($)** en el panel izquierdo para calcular el Precio Sugerido.")
     st.stop()
 
 costo = costo_input
@@ -133,16 +127,15 @@ else:
     st.error(f"❌ Es matemáticamente imposible sacar un {margen_obj}% de margen.")
 
 if precio_input is None:
-    st.info("👈 Ahora ingresa **Tu Precio de Venta** en el panel izquierdo para ver el análisis de rentabilidad.")
+    st.info("👈 Ahora ingresa tu precio de **Venta ($)** en el panel izquierdo para ver el análisis de rentabilidad.")
     st.stop()
 
 precio = precio_input
 
-# Cálculos
+# --- CÁLCULOS ---
 com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
 
-# --- MÉTRICAS CLAVE (CAJAS VISUALES) ---
-st.write("") # Espaciador
+st.write("") # Espaciador ligero
 col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
