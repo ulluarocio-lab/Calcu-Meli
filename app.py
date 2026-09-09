@@ -109,9 +109,9 @@ with st.sidebar:
         
     colA, colB = st.columns(2)
     with colA:
-        costo_input = st.number_input("Costo ($)", min_value=0.0, value=None, step=100.0, placeholder="Obligatorio", help="Costo de compra del producto al proveedor.")
+        costo_input = st.number_input("Costo ($)", min_value=0.0, value=None, step=100.0, placeholder="Obligatorio", help="Costo de compra al proveedor.")
     with colB:
-        precio_input = st.number_input("Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Opcional", help="Déjalo vacío para que el sistema calcule el precio ideal.")
+        precio_input = st.number_input("Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Opcional", help="Déjalo vacío para calcular el precio ideal.")
     
     st.divider()
     st.markdown("### 🏷️ 2. Publicación e Impuestos")
@@ -123,25 +123,22 @@ with st.sidebar:
 
     st.divider()
     st.markdown("### 🎯 3. Objetivos y Ads")
-    meta_ganancia = st.number_input("Meta de Ganancia Mensual ($)", min_value=0, value=500000, step=50000, help="¿Cuánto dinero neto deseas llevarte al bolsillo al mes con este producto?")
-    margen_obj = st.slider("Margen Deseado (%)", min_value=1, max_value=60, value=20, help="Porcentaje del precio de venta que se convierte en tu ganancia limpia.")
+    meta_ganancia = st.number_input("Meta de Ganancia Mensual ($)", min_value=0, value=500000, step=50000, help="Ganancia neta mensual esperada.")
+    margen_obj = st.slider("Margen Deseado (%)", min_value=1, max_value=60, value=20)
     
-    # --- RECUPERADOS LOS INDICADORES DE ACOS ---
-    acos_input = st.slider("ACOS - Inversión Ads (%)", min_value=0, max_value=40, value=0, help="Presupuesto publicitario.")
-    
+    acos_input = st.slider("ACOS - Inversión Ads (%)", min_value=0, max_value=40, value=0)
     if acos_input == 0:
         st.info("⚪ **Sin Ads:** Ideal probar con 5-10% al inicio.")
     elif acos_input <= 15:
         st.success("🟢 **ACOS Sano:** Mantenlo debajo del 15%.")
     elif acos_input <= 25:
-        st.warning("🟠 **ACOS Riesgoso:** Baja tu inversión, afecta tu margen.")
+        st.warning("🟠 **ACOS Riesgoso:** Afecta tu margen.")
     else:
-        st.error("🔴 **ACOS Crítico:** Apaga o ajusta la campaña urgente.")
+        st.error("🔴 **ACOS Crítico:** Ajusta la campaña urgente.")
 
-# --- PANTALLA PRINCIPAL CON TABS ---
+# --- PANTALLA PRINCIPAL ---
 st.title("Business Dashboard")
 
-# 4 Pestañas
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Análisis Individual", "🚀 Proyección", "💼 Portafolio", "🛒 Compras y Presupuesto"])
 
 if costo_input is None:
@@ -213,8 +210,6 @@ else:
             st.info(f"**Tu Costo (Mercadería):**\n### ${costo:,.0f}")
         with c2:
             st.warning(f"**Se lo queda ML / ARCA / Ads:**\n### ${tot_meli:,.0f}")
-            
-            # --- MEJORADA LA DISCRIMINACIÓN DE COSTOS ---
             st.markdown(f"""
             <ul style="font-size: 0.9rem; color: #555; margin-top: -10px;">
                 <li><b>Comisión ML:</b> ${com:,.0f}</li>
@@ -224,10 +219,44 @@ else:
                 <li><b>Mercado Ads:</b> ${costo_ads:,.0f}</li>
             </ul>
             """, unsafe_allow_html=True)
-            
         with c3:
             if gan > 0: st.success(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
             else: st.error(f"**Pérdida:**\n### ${gan:,.0f}")
+
+        # --- NUEVO: DIAGNÓSTICO DE VIABILIDAD ---
+        st.divider()
+        st.subheader("🧠 Diagnóstico de Viabilidad del Producto")
+        
+        # Prueba de estrés: ¿Qué pasa si le metemos 10% de Ads forzoso para impulsarlo?
+        _, _, _, _, _, _, gan_stress, mar_stress, _, _, _ = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, max(10, acos_input))
+        
+        diag1, diag2, diag3 = st.columns(3)
+        with diag1:
+            if mar >= 15:
+                st.success("✅ **Margen Óptimo:**\n\nSupera el 15%. Tienes colchón ante imprevistos o devoluciones.")
+            elif mar >= 10:
+                st.warning("⚠️ **Margen Justo:**\n\nEntre 10% y 15%. Tienes poco margen de error ante aumentos de comisiones.")
+            else:
+                st.error("❌ **Margen Crítico:**\n\nMenor al 10%. Estás asumiendo todo el riesgo logístico por muy poca ganancia.")
+        
+        with diag2:
+            if mkp >= 30:
+                st.success("✅ **ROI Sano:**\n\nSupera el 30%. Tu capital se multiplica a un buen ritmo por cada peso invertido.")
+            else:
+                st.warning("⚠️ **ROI Bajo:**\n\nMenor al 30%. Requieres inmovilizar mucho capital (costo alto) para sacar una ganancia relativamente baja.")
+                
+        with diag3:
+            if gan_stress > 0 and mar_stress >= 5:
+                st.success("✅ **Resiliencia (Soporta Ads):**\n\nSi necesitas encender Ads al 10% para ganar posicionamiento, el producto sigue siendo rentable.")
+            else:
+                st.error("❌ **Dependencia Orgánica:**\n\nSi te ves obligado a encender publicidad (10% ACOS) para vender, perderás dinero.")
+
+        st.info("""
+        💡 **Prueba de Mercado (Checklist Manual):** Antes de agregar al portafolio y comprar, verifica en Mercado Libre:
+        1. 📦 **Logística:** ¿Es pequeño y liviano? (Paga menos Envío Full). ¿Es frágil o tiene talles complejos? (Cuidado con las devoluciones).
+        2. 🛒 **Competencia:** ¿Los líderes de tu nicho tienen publicaciones flojas o malas fotos? (Si tienen miles de ventas y 5 estrellas, es difícil competir).
+        3. 🎁 **Diferenciación:** ¿Puedes armar un KIT o Combo? (Evita competir directamente por precio).
+        """)
 
     # ==========================================
     # PESTAÑA 2: PROYECCIÓN Y ENVÍOS FULL
