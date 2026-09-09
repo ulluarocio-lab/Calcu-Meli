@@ -79,8 +79,8 @@ with st.sidebar:
         st.caption("🏷️ Categoría: Ingresa un producto")
         
     st.divider()
-    costo = st.number_input("Costo de Compra ($)", min_value=0.0, value=22730.0, step=100.0)
-    precio = st.number_input("Tu Precio de Venta ($)", min_value=0.0, value=45000.0, step=100.0)
+    costo = st.number_input("Costo de Compra ($)", min_value=0.0, value=, step=100.0)
+    precio = st.number_input("Tu Precio de Venta ($)", min_value=0.0, value=, step=100.0)
     
     st.divider()
     st.subheader("🎯 Objetivo de Ganancia")
