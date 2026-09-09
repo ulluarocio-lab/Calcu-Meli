@@ -61,10 +61,9 @@ def calcular_metricas(costo, precio, tipo, cond, envio_gratis, acos_pct):
 
     return comision, fijo, envio, impuestos, costo_ads, costos_meli, ganancia, margen, markup, quiebre, roas
 
-# --- CONFIGURACIÓN DE PÁGINA ---
+# --- CONFIGURACIÓN DE PÁGINA Y ESTILOS ---
 st.set_page_config(page_title="Calculadora ML", layout="wide", initial_sidebar_state="expanded")
 
-# CSS limpio, sin márgenes negativos problemáticos
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem; padding-bottom: 1.5rem; }
@@ -80,12 +79,12 @@ with st.sidebar:
     if producto:
         st.caption(f"🏷️ Categoría: {predecir_categoria(producto)}")
         
-    # Agrupación en columnas para compactar sin romper el diseño
     colA, colB = st.columns(2)
     with colA:
         costo_input = st.number_input("Costo ($)", min_value=0.0, value=None, step=100.0, placeholder="Ej: 15000")
     with colB:
-        precio_input = st.number_input("Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Ej: 45000")
+        # Ahora indicamos visualmente que dejarlo en blanco es opcional
+        precio_input = st.number_input("Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Opcional")
     
     colC, colD = st.columns(2)
     with colC:
@@ -115,22 +114,25 @@ with st.sidebar:
 st.title("📊 Panel de Decisión")
 
 if costo_input is None:
-    st.info("👈 Ingresa tu **Costo ($)** en el panel izquierdo para calcular el Precio Sugerido.")
+    st.info("👈 Ingresa tu **Costo ($)** en el panel izquierdo para comenzar. Si dejas el precio de venta en blanco, calcularemos el ideal automáticamente.")
     st.stop()
 
 costo = costo_input
 precio_sugerido = calcular_precio_sugerido(costo, tipo_pub, cond_fiscal, envio, margen_obj, acos_input)
 
-if precio_sugerido > 0:
-    st.success(f"💡 **Precio Sugerido:** Para lograr un **{margen_obj}%** de ganancia invirtiendo {acos_input}% en Ads, publica a **${precio_sugerido:,.0f}**")
+# LÓGICA DE DECISIÓN: AUTOMÁTICO VS MANUAL
+if precio_input is None or precio_input == 0:
+    if precio_sugerido > 0:
+        precio = precio_sugerido
+        st.success(f"🤖 **Modo Automático:** Estás viendo el análisis para el precio sugerido de **${precio:,.0f}** (Objetivo: {margen_obj}% margen).")
+    else:
+        st.error(f"❌ Es matemáticamente imposible sacar un {margen_obj}% de margen con tus costos e impuestos. Ingresa un precio manual o reduce tu expectativa.")
+        st.stop()
 else:
-    st.error(f"❌ Es matemáticamente imposible sacar un {margen_obj}% de margen.")
-
-if precio_input is None:
-    st.info("👈 Ahora ingresa tu precio de **Venta ($)** en el panel izquierdo para ver el análisis de rentabilidad.")
-    st.stop()
-
-precio = precio_input
+    precio = precio_input
+    st.info(f"⚙️ **Modo Manual:** Analizando tu precio personalizado de **${precio:,.0f}**.")
+    if precio_sugerido > 0:
+        st.caption(f"*(💡 Sugerencia: Para lograr exactamente un {margen_obj}% de margen limpio, deberías publicar a ${precio_sugerido:,.0f})*")
 
 # --- CÁLCULOS ---
 com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
