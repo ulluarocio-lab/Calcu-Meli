@@ -139,7 +139,7 @@ with st.sidebar:
 # --- PANTALLA PRINCIPAL ---
 st.title("Business Dashboard")
 
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Análisis Individual", "🚀 Proyección", "💼 Portafolio", "🛒 Compras y Presupuesto"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Análisis Individual", "🚀 Proyección y Envíos", "💼 Portafolio", "🛒 Compras y Presupuesto"])
 
 if costo_input is None:
     with tab1:
@@ -223,40 +223,55 @@ else:
             if gan > 0: st.success(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
             else: st.error(f"**Pérdida:**\n### ${gan:,.0f}")
 
-        # --- NUEVO: DIAGNÓSTICO DE VIABILIDAD ---
+        # --- DIAGNÓSTICO FINANCIERO ---
         st.divider()
-        st.subheader("🧠 Diagnóstico de Viabilidad del Producto")
+        st.subheader("🧠 Diagnóstico Financiero")
         
-        # Prueba de estrés: ¿Qué pasa si le metemos 10% de Ads forzoso para impulsarlo?
         _, _, _, _, _, _, gan_stress, mar_stress, _, _, _ = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, max(10, acos_input))
         
         diag1, diag2, diag3 = st.columns(3)
         with diag1:
-            if mar >= 15:
-                st.success("✅ **Margen Óptimo:**\n\nSupera el 15%. Tienes colchón ante imprevistos o devoluciones.")
-            elif mar >= 10:
-                st.warning("⚠️ **Margen Justo:**\n\nEntre 10% y 15%. Tienes poco margen de error ante aumentos de comisiones.")
-            else:
-                st.error("❌ **Margen Crítico:**\n\nMenor al 10%. Estás asumiendo todo el riesgo logístico por muy poca ganancia.")
+            if mar >= 15: st.success("✅ **Margen Óptimo:**\n\nTienes colchón ante imprevistos o devoluciones.")
+            elif mar >= 10: st.warning("⚠️ **Margen Justo:**\n\nTienes poco margen de error ante aumentos de comisiones.")
+            else: st.error("❌ **Margen Crítico:**\n\nEstás asumiendo todo el riesgo logístico por muy poca ganancia.")
         
         with diag2:
-            if mkp >= 30:
-                st.success("✅ **ROI Sano:**\n\nSupera el 30%. Tu capital se multiplica a un buen ritmo por cada peso invertido.")
-            else:
-                st.warning("⚠️ **ROI Bajo:**\n\nMenor al 30%. Requieres inmovilizar mucho capital (costo alto) para sacar una ganancia relativamente baja.")
+            if mkp >= 30: st.success("✅ **ROI Sano:**\n\nTu capital se multiplica a un buen ritmo por cada peso invertido.")
+            else: st.warning("⚠️ **ROI Bajo:**\n\nRequieres inmovilizar mucho capital para sacar una ganancia relativamente baja.")
                 
         with diag3:
-            if gan_stress > 0 and mar_stress >= 5:
-                st.success("✅ **Resiliencia (Soporta Ads):**\n\nSi necesitas encender Ads al 10% para ganar posicionamiento, el producto sigue siendo rentable.")
-            else:
-                st.error("❌ **Dependencia Orgánica:**\n\nSi te ves obligado a encender publicidad (10% ACOS) para vender, perderás dinero.")
+            if gan_stress > 0 and mar_stress >= 5: st.success("✅ **Resiliencia (Soporta Ads):**\n\nSi necesitas encender Ads al 10% para impulsar tus ventas, sigues siendo rentable.")
+            else: st.error("❌ **Dependencia Orgánica:**\n\nSi te ves obligado a encender publicidad (10% ACOS) para vender, perderás dinero.")
 
-        st.info("""
-        💡 **Prueba de Mercado (Checklist Manual):** Antes de agregar al portafolio y comprar, verifica en Mercado Libre:
-        1. 📦 **Logística:** ¿Es pequeño y liviano? (Paga menos Envío Full). ¿Es frágil o tiene talles complejos? (Cuidado con las devoluciones).
-        2. 🛒 **Competencia:** ¿Los líderes de tu nicho tienen publicaciones flojas o malas fotos? (Si tienen miles de ventas y 5 estrellas, es difícil competir).
-        3. 🎁 **Diferenciación:** ¿Puedes armar un KIT o Combo? (Evita competir directamente por precio).
-        """)
+        # --- NUEVO: TEST DE MERCADO INTERACTIVO ---
+        st.divider()
+        st.subheader("🕵️‍♂️ Evaluación de Mercado (Competencia)")
+        st.caption("Responde estas 3 preguntas mirando a tus principales competidores en Mercado Libre para obtener un veredicto de viabilidad.")
+        
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            comp_ventas = st.selectbox("1. ¿Qué volumen de ventas tienen los líderes (primeros 3)?", ["Altas (Más de 1000 vendidos)", "Medias (Cientos vendidos)", "Bajas (Pocos o sin ventas)"])
+            comp_calidad = st.selectbox("2. ¿Cómo es la calidad de sus publicaciones (fotos, descripción)?", ["Mala (Fotos feas, descripciones vacías)", "Normal (Fotos de catálogo, decente)", "Excelente (Videos, Mercado Líder, diseño pro)"])
+        with col_m2:
+            comp_dif = st.radio("3. ¿Tu producto tiene un diferencial claro?", ["Sí (Es un Combo/Kit, mejor calidad, diseño único)", "No (Es exactamente el mismo producto genérico)"])
+            
+            # Algoritmo de Score
+            score_mercado = 0
+            if "Altas" in comp_ventas: score_mercado += 1
+            elif "Medias" in comp_ventas: score_mercado += 0.5
+            
+            if "Mala" in comp_calidad: score_mercado += 2
+            elif "Normal" in comp_calidad: score_mercado += 1
+            
+            if "Sí" in comp_dif: score_mercado += 2
+            
+            st.write("") # Espaciador
+            if score_mercado >= 4:
+                st.success("🌟 **Veredicto: Oportunidad de Oro.** ¡Avanza! Hay demanda demostrada, competidores débiles a los que puedes ganarles, y tienes un diferencial.")
+            elif score_mercado >= 2.5:
+                st.warning("⚖️ **Veredicto: Mercado Competitivo.** El nicho funciona, pero hay competencia. Tu éxito dependerá de hacer mejores fotos y tener buen presupuesto de Ads.")
+            else:
+                st.error("🚨 **Veredicto: Riesgo Elevado.** No hay demanda clara o la competencia es muy fuerte e idéntica a ti. Revalúa la idea antes de comprar stock.")
 
     # ==========================================
     # PESTAÑA 2: PROYECCIÓN Y ENVÍOS FULL
@@ -277,16 +292,34 @@ else:
                     st.toast('¡Producto guardado exitosamente en tu Portafolio!', icon='✅')
 
             with col_p2:
-                tamano_full = st.selectbox("Costo de Mercado Envíos Full (Mensual/Unidad)", ["Pequeño ($150)", "Mediano ($450)", "Grande ($1200)"])
+                # --- NUEVO: REFERENCIAS DE TAMAÑO FULL ---
+                tamano_full = st.selectbox("Costo de Mercado Envíos Full (Mensual/Unidad)", [
+                    "Pequeño ($150)", 
+                    "Mediano ($450)", 
+                    "Grande ($1200)"
+                ])
+                
+                # Cuadro de guía de medidas
+                st.markdown("""
+                <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid #00a650;">
+                    <h5 style="margin-top: 0; color: #333;">📏 Guía Oficial de Tamaños (Referencia Meli)</h5>
+                    <ul style="font-size: 0.85rem; color: #555; margin-bottom: 0;">
+                        <li><b>Pequeño:</b> Hasta 1.200 cm³ (Ej: 10 x 15 x 8 cm) o peso < 500g. <i>(Fundas, billeteras, joyas).</i></li>
+                        <li><b>Mediano:</b> Hasta 30.000 cm³ (Ej: 30 x 30 x 33 cm) o peso < 5kg. <i>(Cajas de zapatillas, pavas eléctricas).</i></li>
+                        <li><b>Grande:</b> Más de 30.000 cm³. <i>(Microondas, sillas, electrodomésticos).</i></li>
+                    </ul>
+                </div>
+                """, unsafe_allow_html=True)
+
                 costo_full_unitario = 150 if "Pequeño" in tamano_full else 450 if "Mediano" in tamano_full else 1200
                 costo_full_total = unidades_mes * costo_full_unitario
                 ganancia_post_full = meta_ganancia - costo_full_total
                 
-                st.warning(f"**Costo de bodega Full (Total Mensual):** ${costo_full_total:,.0f}")
+                st.warning(f"**Costo estimado de Bodega Full (Total Mensual):** ${costo_full_total:,.0f}")
                 if ganancia_post_full > 0:
                     st.success(f"**Ganancia Neta operando en Full:** ${ganancia_post_full:,.0f}")
                 else:
-                    st.error(f"🚨 Operar en Full consumirá tu ganancia. Pierdes ${abs(ganancia_post_full):,.0f}.")
+                    st.error(f"🚨 Operar en Full consumirá tu ganancia mensual. Pierdes ${abs(ganancia_post_full):,.0f}.")
 
     # ==========================================
     # PESTAÑA 3: PORTAFOLIO GLOBAL
