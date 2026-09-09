@@ -125,12 +125,23 @@ with st.sidebar:
     st.markdown("### 🎯 3. Objetivos y Ads")
     meta_ganancia = st.number_input("Meta de Ganancia Mensual ($)", min_value=0, value=500000, step=50000, help="¿Cuánto dinero neto deseas llevarte al bolsillo al mes con este producto?")
     margen_obj = st.slider("Margen Deseado (%)", min_value=1, max_value=60, value=20, help="Porcentaje del precio de venta que se convierte en tu ganancia limpia.")
+    
+    # --- RECUPERADOS LOS INDICADORES DE ACOS ---
     acos_input = st.slider("ACOS - Inversión Ads (%)", min_value=0, max_value=40, value=0, help="Presupuesto publicitario.")
+    
+    if acos_input == 0:
+        st.info("⚪ **Sin Ads:** Ideal probar con 5-10% al inicio.")
+    elif acos_input <= 15:
+        st.success("🟢 **ACOS Sano:** Mantenlo debajo del 15%.")
+    elif acos_input <= 25:
+        st.warning("🟠 **ACOS Riesgoso:** Baja tu inversión, afecta tu margen.")
+    else:
+        st.error("🔴 **ACOS Crítico:** Apaga o ajusta la campaña urgente.")
 
 # --- PANTALLA PRINCIPAL CON TABS ---
 st.title("Business Dashboard")
 
-# Ahora son 4 pestañas
+# 4 Pestañas
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Análisis Individual", "🚀 Proyección", "💼 Portafolio", "🛒 Compras y Presupuesto"])
 
 if costo_input is None:
@@ -198,10 +209,22 @@ else:
         st.divider()
         st.subheader("¿A dónde va el dinero de tu venta actual?")
         c1, c2, c3 = st.columns(3)
-        with c1: st.info(f"**Tu Costo (Mercadería):**\n### ${costo:,.0f}")
+        with c1: 
+            st.info(f"**Tu Costo (Mercadería):**\n### ${costo:,.0f}")
         with c2:
             st.warning(f"**Se lo queda ML / ARCA / Ads:**\n### ${tot_meli:,.0f}")
-            st.caption(f"Comisión: ${com:,.0f} | Envío: ${env:,.0f} | Fijo: ${fijo:,.0f} | Imp (ARCA): ${imp:,.0f} | Ads: ${costo_ads:,.0f}")
+            
+            # --- MEJORADA LA DISCRIMINACIÓN DE COSTOS ---
+            st.markdown(f"""
+            <ul style="font-size: 0.9rem; color: #555; margin-top: -10px;">
+                <li><b>Comisión ML:</b> ${com:,.0f}</li>
+                <li><b>Envío ML:</b> ${env:,.0f}</li>
+                <li><b>Costo Fijo (Unidad):</b> ${fijo:,.0f}</li>
+                <li><b>Impuestos (ARCA):</b> ${imp:,.0f}</li>
+                <li><b>Mercado Ads:</b> ${costo_ads:,.0f}</li>
+            </ul>
+            """, unsafe_allow_html=True)
+            
         with c3:
             if gan > 0: st.success(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
             else: st.error(f"**Pérdida:**\n### ${gan:,.0f}")
@@ -236,92 +259,84 @@ else:
                 else:
                     st.error(f"🚨 Operar en Full consumirá tu ganancia. Pierdes ${abs(ganancia_post_full):,.0f}.")
 
-# ==========================================
-# PESTAÑA 3: PORTAFOLIO GLOBAL
-# ==========================================
-with tab3:
-    st.markdown("### 💼 Consolidado de Inversiones")
-    if len(st.session_state.portafolio) == 0:
-        st.info("Tu portafolio está vacío. Ve a la pestaña 'Proyección' y guarda algunos productos.")
-    else:
-        df_portafolio = pd.DataFrame(st.session_state.portafolio)
-        inversion_total = df_portafolio["Inversión Req."].sum()
-        facturacion_total = df_portafolio["Facturación Est."].sum()
-        ganancia_total = (df_portafolio["Ganancia Unit."] * df_portafolio["Unidades/Mes"]).sum()
-        unidades_totales = df_portafolio["Unidades/Mes"].sum()
-
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Capital a Invertir", f"${inversion_total:,.0f}")
-        m2.metric("Facturación Proyectada", f"${facturacion_total:,.0f}")
-        m3.metric("Ganancia Neta Global", f"${ganancia_total:,.0f}")
-        m4.metric("Volumen (Unidades)", f"{unidades_totales}")
-
-        st.divider()
-        st.dataframe(df_portafolio, use_container_width=True, hide_index=True)
-        
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            csv = df_portafolio.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Descargar Portafolio (CSV)", data=csv, file_name='mi_portafolio.csv', mime='text/csv', use_container_width=True)
-        with col_btn2:
-            if st.button("☁️ Sincronizar Portafolio (Sheets)", use_container_width=True):
-                with st.spinner("Sincronizando..."):
-                    try:
-                        conn = st.connection("gsheets", type=GSheetsConnection)
-                        conn.update(worksheet="Hoja 1", data=df_portafolio)
-                        st.success("¡Éxito! Revisa tu Google Sheet.")
-                    except Exception as e:
-                        st.error("Configura los st.secrets primero.")
-
-# ==========================================
-# PESTAÑA 4: PRESUPUESTO Y ORDEN DE COMPRA
-# ==========================================
-with tab4:
-    if len(st.session_state.portafolio) == 0:
-        st.info("Agrega productos al portafolio para armar tu presupuesto y orden de compra.")
-    else:
-        st.markdown("### 💰 Control de Presupuesto")
-        
-        # Recalcular la inversión total
-        df_portafolio = pd.DataFrame(st.session_state.portafolio)
-        inversion_total = df_portafolio["Inversión Req."].sum()
-        
-        # 1. Ingreso del presupuesto
-        presupuesto = st.number_input("¿De cuánto capital total dispones para comprar stock? ($)", min_value=0.0, value=inversion_total, step=50000.0)
-        
-        # Cálculo de estado del presupuesto
-        balance = presupuesto - inversion_total
-        porcentaje_uso = (inversion_total / presupuesto) * 100 if presupuesto > 0 else 100
-        
-        # Barra de progreso visual
-        if balance >= 0:
-            st.success(f"✅ **Presupuesto Sano:** Te sobran **${balance:,.0f}** de tu capital disponible.")
-            # Barra verde/azul limitando a 1.0 (100%)
-            st.progress(min(inversion_total / presupuesto, 1.0))
+    # ==========================================
+    # PESTAÑA 3: PORTAFOLIO GLOBAL
+    # ==========================================
+    with tab3:
+        st.markdown("### 💼 Consolidado de Inversiones")
+        if len(st.session_state.portafolio) == 0:
+            st.info("Tu portafolio está vacío. Ve a la pestaña 'Proyección' y guarda algunos productos.")
         else:
-            st.error(f"🚨 **¡Presupuesto Excedido!** Te faltan **${abs(balance):,.0f}**. Debes inyectar más capital o eliminar unidades de tu portafolio.")
-            st.progress(1.0) # Barra llena roja/indicador tope
+            df_portafolio = pd.DataFrame(st.session_state.portafolio)
+            inversion_total = df_portafolio["Inversión Req."].sum()
+            facturacion_total = df_portafolio["Facturación Est."].sum()
+            ganancia_total = (df_portafolio["Ganancia Unit."] * df_portafolio["Unidades/Mes"]).sum()
+            unidades_totales = df_portafolio["Unidades/Mes"].sum()
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Capital a Invertir", f"${inversion_total:,.0f}")
+            m2.metric("Facturación Proyectada", f"${facturacion_total:,.0f}")
+            m3.metric("Ganancia Neta Global", f"${ganancia_total:,.0f}")
+            m4.metric("Volumen (Unidades)", f"{unidades_totales}")
+
+            st.divider()
+            st.dataframe(df_portafolio, use_container_width=True, hide_index=True)
             
-        st.caption(f"Has comprometido el **{porcentaje_uso:.1f}%** de tu capital en tu portafolio actual (${inversion_total:,.0f}).")
-        
-        st.divider()
-        
-        # 2. Orden de Compra para Proveedor
-        st.markdown("### 🛒 Orden de Compra (Proveedores)")
-        st.caption("Esta tabla filtra solo la información que necesita tu proveedor: Nombre, Costo Unitario, Cantidad a comprar y Total a pagar.")
-        
-        # Filtrar columnas limpias para el proveedor
-        df_oc = df_portafolio[['Producto', 'Costo Unit.', 'Unidades/Mes', 'Inversión Req.']].copy()
-        df_oc.columns = ['Producto a Comprar', 'Costo Unitario ($)', 'Cantidad', 'Total a Pagar ($)']
-        
-        st.dataframe(df_oc, use_container_width=True, hide_index=True)
-        
-        # Descargar Orden de Compra
-        csv_oc = df_oc.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Descargar Orden de Compra (PDF/CSV)",
-            data=csv_oc,
-            file_name='orden_de_compra_proveedores.csv',
-            mime='text/csv',
-            use_container_width=True
-        )
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                csv = df_portafolio.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Descargar Portafolio (CSV)", data=csv, file_name='mi_portafolio.csv', mime='text/csv', use_container_width=True)
+            with col_btn2:
+                if st.button("☁️ Sincronizar Portafolio (Sheets)", use_container_width=True):
+                    with st.spinner("Sincronizando..."):
+                        try:
+                            conn = st.connection("gsheets", type=GSheetsConnection)
+                            conn.update(worksheet="Hoja 1", data=df_portafolio)
+                            st.success("¡Éxito! Revisa tu Google Sheet.")
+                        except Exception as e:
+                            st.error("Configura los st.secrets primero.")
+
+    # ==========================================
+    # PESTAÑA 4: PRESUPUESTO Y ORDEN DE COMPRA
+    # ==========================================
+    with tab4:
+        if len(st.session_state.portafolio) == 0:
+            st.info("Agrega productos al portafolio para armar tu presupuesto y orden de compra.")
+        else:
+            st.markdown("### 💰 Control de Presupuesto")
+            
+            df_portafolio = pd.DataFrame(st.session_state.portafolio)
+            inversion_total = df_portafolio["Inversión Req."].sum()
+            
+            presupuesto = st.number_input("¿De cuánto capital total dispones para comprar stock? ($)", min_value=0.0, value=inversion_total, step=50000.0)
+            
+            balance = presupuesto - inversion_total
+            porcentaje_uso = (inversion_total / presupuesto) * 100 if presupuesto > 0 else 100
+            
+            if balance >= 0:
+                st.success(f"✅ **Presupuesto Sano:** Te sobran **${balance:,.0f}** de tu capital disponible.")
+                st.progress(min(inversion_total / presupuesto, 1.0))
+            else:
+                st.error(f"🚨 **¡Presupuesto Excedido!** Te faltan **${abs(balance):,.0f}**. Debes inyectar más capital o eliminar unidades de tu portafolio.")
+                st.progress(1.0)
+                
+            st.caption(f"Has comprometido el **{porcentaje_uso:.1f}%** de tu capital en tu portafolio actual (${inversion_total:,.0f}).")
+            
+            st.divider()
+            
+            st.markdown("### 🛒 Orden de Compra (Proveedores)")
+            st.caption("Esta tabla filtra solo la información que necesita tu proveedor: Nombre, Costo Unitario, Cantidad a comprar y Total a pagar.")
+            
+            df_oc = df_portafolio[['Producto', 'Costo Unit.', 'Unidades/Mes', 'Inversión Req.']].copy()
+            df_oc.columns = ['Producto a Comprar', 'Costo Unitario ($)', 'Cantidad', 'Total a Pagar ($)']
+            
+            st.dataframe(df_oc, use_container_width=True, hide_index=True)
+            
+            csv_oc = df_oc.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Descargar Orden de Compra (CSV)",
+                data=csv_oc,
+                file_name='orden_de_compra_proveedores.csv',
+                mime='text/csv',
+                use_container_width=True
+            )
