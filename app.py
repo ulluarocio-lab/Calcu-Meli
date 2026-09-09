@@ -83,63 +83,82 @@ with st.sidebar:
         st.caption("🏷️ Categoría: Ingresa un producto")
         
     st.divider()
-    costo = st.number_input("Costo de Compra ($)", min_value=0.0, value=22730.0, step=100.0)
-    precio = st.number_input("Tu Precio de Venta ($)", min_value=0.0, value=45000.0, step=100.0)
+    costo_input = st.number_input("Costo de Compra ($)", min_value=0.0, value=None, step=100.0, placeholder="Ej: 15000")
     
-    st.divider()
     st.subheader("🎯 Objetivos y Ads")
     margen_obj = st.slider("Margen Limpio Deseado (%)", min_value=1, max_value=60, value=20)
     
     acos_input = st.slider("ACOS - Mercado Ads (%)", min_value=0, max_value=40, value=0, help="Porcentaje del precio destinado a publicidad. Ej: 10% ACOS equivale a un ROAS de 10.")
     
-    # --- INDICADOR DE ACOS SANO ---
+    # --- INDICADOR DE ACOS SANO VISUAL ---
     if acos_input == 0:
-        st.caption("⚪ Sin inversión en Ads activa.")
-    elif acos_input <= 10:
-        st.caption("🟢 **ACOS Excelente:** Alta rentabilidad asegurada.")
+        st.info("⚪ **Sin Ads Activas**\n\n💡 *Sugerencia:* Invertir un **5% a 10%** en publicidad ayuda a escalar las ventas de productos nuevos sin arriesgar el margen.")
     elif acos_input <= 15:
-        st.caption("🟡 **ACOS Sano:** Promedio ideal del mercado.")
+        st.success("🟢 **ACOS Sano / Excelente**\n\n💡 *Sugerencia:* Mantenlo **debajo del 15%** (y el ROAS sobre **6.6x**) para proteger tu ganancia final.")
     elif acos_input <= 25:
-        st.caption("🟠 **ACOS Alto:** Riesgoso, vigila tu margen de ganancia.")
+        st.warning("🟠 **ACOS Riesgoso**\n\n💡 *Sugerencia:* Intenta optimizar la campaña por **debajo del 15%**. Tu retorno de inversión publicitaria está bajando peligrosamente.")
     else:
-        st.caption("🔴 **ACOS Crítico:** Probabilidad alta de vender a pérdida.")
+        st.error("🔴 **ACOS Crítico**\n\n💡 *Sugerencia:* ¡Urgente! Bájalo a menos del **15%** o apaga la campaña, estás licuando toda tu ganancia en publicidad.")
+    
+    st.divider()
+    precio_input = st.number_input("Tu Precio de Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Ej: 45000")
     
     st.divider()
     tipo_pub = st.selectbox("Publicación", ["Clásica", "Premium"])
     cond_fiscal = st.selectbox("Impuestos", ["Monotributo", "Responsable Inscripto"])
-    envio = st.checkbox("Ofrecer Envío Gratis", value=(precio >= UMBRAL_ENVIO_GRATIS))
+    
+    precio_ref = precio_input if precio_input is not None else 0
+    envio = st.checkbox("Ofrecer Envío Gratis", value=(precio_ref >= UMBRAL_ENVIO_GRATIS))
 
-# --- CÁLCULOS ---
-com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
+# --- PANTALLA PRINCIPAL ---
+st.title("📊 Panel de Decisión")
+
+# Detener ejecución si no hay costo ingresado para evitar errores
+if costo_input is None:
+    st.info("👈 Ingresa tu **Costo de Compra** en el panel izquierdo para calcular el Precio Sugerido.")
+    st.stop()
+
+costo = costo_input
+
+# --- CÁLCULO PRECIO SUGERIDO ---
 precio_sugerido = calcular_precio_sugerido(costo, tipo_pub, cond_fiscal, envio, margen_obj, acos_input)
+
+if precio_sugerido > 0:
+    st.success(f"💡 **Precio Sugerido:** Para lograr un **{margen_obj}%** de ganancia limpia invirtiendo {acos_input}% en Ads, debes publicar a **${precio_sugerido:,.0f}**")
+else:
+    st.error(f"❌ Es matemáticamente imposible sacar un {margen_obj}% de margen con las retenciones y la inversión en Ads actual.")
+
+st.divider()
+
+# Detener ejecución si no hay precio de venta ingresado
+if precio_input is None:
+    st.info("👈 Ahora ingresa **Tu Precio de Venta** en el panel izquierdo para ver el análisis de rentabilidad real y el semáforo.")
+    st.stop()
+
+precio = precio_input
+
+# --- CÁLCULOS MÉTRICAS FINALES ---
+com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
 
 # --- DETERMINAR COLOR DEL ROAS ---
 if acos_input == 0:
     roas_display = "N/A"
 elif roas >= 10:
-    roas_display = f"{roas:.1f}x 🟢"  # Excelente (ACOS <= 10%)
+    roas_display = f"{roas:.1f}x 🟢"  
 elif roas >= 6.6:
-    roas_display = f"{roas:.1f}x 🟡"  # Sano (ACOS <= 15%)
+    roas_display = f"{roas:.1f}x 🟡"  
 elif roas >= 4:
-    roas_display = f"{roas:.1f}x 🟠"  # Riesgoso (ACOS <= 25%)
+    roas_display = f"{roas:.1f}x 🟠"  
 else:
-    roas_display = f"{roas:.1f}x 🔴"  # Crítico (ACOS > 25%)
+    roas_display = f"{roas:.1f}x 🔴"  
 
-# --- PANTALLA PRINCIPAL ---
-st.title("📊 Panel de Decisión")
-
-# 1. SEMÁFORO Y PRECIO SUGERIDO
+# 1. SEMÁFORO PRINCIPAL
 if gan <= 0:
     st.error(f"🚨 NO RENTABLE: Estás perdiendo ${abs(gan):,.0f} por unidad.")
 elif mar < 10:
     st.warning(f"⚠️ RENTABILIDAD BAJA: Margen muy ajustado ({mar:.1f}%).")
 else:
     st.success(f"✅ PRODUCTO RENTABLE: Margen saludable ({mar:.1f}%).")
-
-if precio_sugerido > 0:
-    st.info(f"💡 **Precio Sugerido:** Para lograr un **{margen_obj}%** de ganancia limpia invirtiendo {acos_input}% en Ads, debes publicar a **${precio_sugerido:,.0f}**")
-else:
-    st.error(f"❌ Es matemáticamente imposible sacar un {margen_obj}% de margen con las retenciones y la inversión en Ads actual.")
 
 # 2. MÉTRICAS CLAVE
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -151,7 +170,7 @@ col5.metric("ROAS (Ads)", roas_display)
 
 st.divider()
 
-# 3. DESGLOSE DEL DINERO
+# 3. DESGLOSE DEL DINERO (CON CAJAS DE COLORES ESTILO DASHBOARD)
 st.subheader("¿A dónde va el dinero de tu venta actual?")
 c1, c2, c3 = st.columns(3)
 
@@ -159,6 +178,6 @@ with c1:
     st.info(f"**Tu Costo (Mercadería):**\n### ${costo:,.0f}")
 with c2:
     st.warning(f"**Se lo queda ML / AFIP / Ads:**\n### ${tot_meli:,.0f}")
-    st.caption(f"Comisión: ${com:,.0f} | Envío: ${env:,.0f} | Fijo: ${fijo:,.0f} | Impuestos: ${imp:,.0f} | Ads: ${costo_ads:,.0f}")
+    st.caption(f"Comisión: ${com:,.0f} | Envío: ${env:,.0f} | Fijo: ${fijo:,.0f} | Imp: ${imp:,.0f} | Ads: ${costo_ads:,.0f}")
 with c3:
     st.success(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
