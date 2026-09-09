@@ -2,132 +2,105 @@ import streamlit as st
 import requests
 
 # --- CONFIGURACIÓN DE PARÁMETROS MELI (2026) ---
-UMBRAL_ENVIO_GRATIS = 33000  # A partir de este monto, el envío gratis es obligatorio
-COSTO_FIJO_UNIDAD = 900      # Costo fijo para productos menores a $12,000
+UMBRAL_ENVIO_GRATIS = 33000
+COSTO_FIJO_UNIDAD = 900
 UMBRAL_COSTO_FIJO = 12000
-COSTO_ENVIO_PROMEDIO = 4500  # Costo estimado que te cobra ML por Mercado Envíos
+COSTO_ENVIO_PROMEDIO = 4500
 
 def predecir_categoria(titulo):
-    """Consulta a la API de Mercado Libre para predecir la categoría"""
     url = "https://api.mercadolibre.com/sites/MLA/domain_discovery/search"
     try:
-        # 'params' codifica automáticamente los espacios y caracteres especiales
         response = requests.get(url, params={"q": titulo, "limit": 1})
         if response.status_code == 200:
             data = response.json()
             if data and len(data) > 0:
-                return data[0].get("domain_name", "Categoría no encontrada"), data[0].get("category_id", "Sin ID")
-            return "Categoría no encontrada", None
-        return "Error en API", None
+                return data[0].get("domain_name", "Desconocida")
+        return "No encontrada"
     except:
-        return "Error de conexión", None
+        return "Error API"
 
-def calcular_metricas(costo_producto, precio_venta, tipo_pub, condicion_fiscal, ofrece_envio):
-    # 1. Comisiones
-    porcentaje_comision = 0.15 if tipo_pub == "Clásica" else 0.25
-    comision_meli = precio_venta * porcentaje_comision
+def calcular_metricas(costo, precio, tipo, cond, envio_gratis):
+    porcentaje_comision = 0.15 if tipo == "Clásica" else 0.25
+    comision = precio * porcentaje_comision
+    fijo = COSTO_FIJO_UNIDAD if precio < UMBRAL_COSTO_FIJO else 0
+    envio = COSTO_ENVIO_PROMEDIO if (envio_gratis or precio >= UMBRAL_ENVIO_GRATIS) else 0
+    impuestos = precio * (0.03 if cond == "Monotributo" else 0.135)
     
-    # 2. Costo Fijo Unitario
-    costo_fijo = COSTO_FIJO_UNIDAD if precio_venta < UMBRAL_COSTO_FIJO else 0
+    costos_meli = comision + fijo + envio + impuestos
+    ganancia = precio - costo - costos_meli
     
-    # 3. Costo de Envío
-    costo_envio = 0
-    if ofrece_envio or precio_venta >= UMBRAL_ENVIO_GRATIS:
-        costo_envio = COSTO_ENVIO_PROMEDIO
+    margen = (ganancia / precio) * 100 if precio > 0 else 0
+    markup = (ganancia / costo) * 100 if costo > 0 else 0
+    
+    denominador = 1 - porcentaje_comision - (0.03 if cond == "Monotributo" else 0.135)
+    quiebre = (costo + envio + fijo) / denominador if denominador > 0 else 0
+
+    return comision, fijo, envio, impuestos, costos_meli, ganancia, margen, markup, quiebre
+
+# --- CONFIGURACIÓN DE PÁGINA (COMPACTA) ---
+st.set_page_config(page_title="Calculadora ML", layout="wide", initial_sidebar_state="expanded")
+
+# --- CSS PARA HACERLA MÁS COMPACTA ---
+st.markdown("""
+    <style>
+    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
+    h1 { font-size: 1.8rem !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- PANEL LATERAL (INPUTS) ---
+with st.sidebar:
+    st.header("⚙️ Ingreso de Datos")
+    
+    producto = st.text_input("Producto:")
+    if producto:
+        cat = predecir_categoria(producto)
+        st.caption(f"🏷️ Categoría: {cat}")
+    else:
+        st.caption("🏷️ Categoría: Ingresa un producto")
         
-    # 4. Impuestos (IIBB + IVA si corresponde)
-    porcentaje_impuestos = 0.03 if condicion_fiscal == "Monotributo" else 0.135
-    impuestos = precio_venta * porcentaje_impuestos
-    
-    # 5. Ecuación de Ganancia
-    costo_total_venta = costo_producto + comision_meli + costo_fijo + costo_envio + impuestos
-    ganancia_neta = precio_venta - costo_total_venta
-    
-    # 6. Márgenes
-    margen_ventas = (ganancia_neta / precio_venta) * 100 if precio_venta > 0 else 0
-    markup = (ganancia_neta / costo_producto) * 100 if costo_producto > 0 else 0
-    
-    # 7. Punto de Quiebre (Break-even)
-    # Ecuación: Precio = Costo_Prod + Envío + Costo_Fijo + (Precio * %Comision) + (Precio * %Impuestos)
-    denominador_quiebre = 1 - porcentaje_comision - porcentaje_impuestos
-    punto_quiebre = (costo_producto + costo_envio + costo_fijo) / denominador_quiebre if denominador_quiebre > 0 else 0
-
-    return {
-        "comision_meli": comision_meli,
-        "costo_fijo": costo_fijo,
-        "costo_envio": costo_envio,
-        "impuestos": impuestos,
-        "ganancia_neta": ganancia_neta,
-        "margen_ventas": margen_ventas,
-        "markup": markup,
-        "punto_quiebre": punto_quiebre
-    }
-
-# --- INTERFAZ WEB APP CON STREAMLIT ---
-st.set_page_config(page_title="Calculadora Mercado Libre", layout="wide")
-st.title("📦 Calculadora de Rentabilidad - Mercado Libre")
-
-# Sección 1: Búsqueda y Producto
-st.header("1. Identificación del Producto")
-col1, col2 = st.columns(2)
-with col1:
-    # Se eliminó el texto de ejemplo que estaba entre paréntesis
-    producto_nombre = st.text_input("Ingresa el nombre del producto:")
-with col2:
-    if producto_nombre:
-        categoria_nombre, categoria_id = predecir_categoria(producto_nombre)
-        st.info(f"**Categoría ML detectada:** {categoria_nombre}")
-
-# Sección 2: Costos y Precios
-st.header("2. Estructura de Costos")
-col3, col4, col5 = st.columns(3)
-with col3:
-    costo_producto = st.number_input("Costo de compra del producto ($)", min_value=0.0, value=22730.0, step=100.0)
-with col4:
-    precio_venta = st.number_input("Precio de venta publicado ($)", min_value=0.0, value=45000.0, step=100.0)
-with col5:
-    condicion_fiscal = st.selectbox("Condición Fiscal", ["Monotributo", "Responsable Inscripto"])
-
-# Sección 3: Publicación y Envíos
-st.header("3. Parámetros de Publicación")
-col6, col7 = st.columns(2)
-with col6:
-    tipo_pub = st.radio("Tipo de Publicación", ["Clásica", "Premium (Cuotas)"])
-with col7:
-    ofrece_envio = st.checkbox("Ofrecer Envío Gratis", value=(precio_venta >= UMBRAL_ENVIO_GRATIS))
-    if precio_venta >= UMBRAL_ENVIO_GRATIS:
-        st.warning("⚠️ Envío gratis obligatorio por superar los $33,000")
-
-# Ejecutar Cálculos
-if st.button("Calcular Rentabilidad", type="primary"):
-    resultados = calcular_metricas(costo_producto, precio_venta, tipo_pub, condicion_fiscal, ofrece_envio)
+    st.divider()
+    costo = st.number_input("Costo de Compra ($)", min_value=0, value=22730, step=100)
+    precio = st.number_input("Precio de Venta ($)", min_value=0, value=45000, step=100)
     
     st.divider()
-    st.header("📊 Resultados del Análisis")
-    
-    # Tarjetas de métricas principales
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Ganancia Neta Limpia", f"${resultados['ganancia_neta']:,.2f}")
-    m2.metric("Markup (Retorno sobre Costo)", f"{resultados['markup']:.1f}%")
-    m3.metric("Margen sobre Venta", f"{resultados['margen_ventas']:.1f}%")
-    
-    # Desglose de Gastos y Riesgo
-    col8, col9 = st.columns(2)
-    with col8:
-        st.subheader("Desglose de Descuentos")
-        st.markdown(f"""
-        * **Comisión ML ({tipo_pub}):** ${resultados['comision_meli']:,.2f}
-        * **Costo Fijo Unitario:** ${resultados['costo_fijo']:,.2f}
-        * **Costo de Envío:** ${resultados['costo_envio']:,.2f}
-        * **Retenciones/Impuestos:** ${resultados['impuestos']:,.2f}
-        * **Total Descontado por ML:** ${(resultados['comision_meli'] + resultados['costo_fijo'] + resultados['costo_envio'] + resultados['impuestos']):,.2f}
-        """)
-        
-    with col9:
-        st.subheader("Gestión de Riesgo")
-        if resultados['ganancia_neta'] < 0:
-            st.error("🚨 ESTÁS VENDIENDO A PÉRDIDA. Debes subir el precio o bajar el costo.")
-        else:
-            st.success("✅ Venta rentable.")
-        
-        st.info(f"**Punto de Quiebre:** ${resultados['punto_quiebre']:,.2f} \n\n *(Si publicas por debajo de este monto, perderás dinero)*")
+    tipo_pub = st.selectbox("Publicación", ["Clásica", "Premium"])
+    cond_fiscal = st.selectbox("Impuestos", ["Monotributo", "Responsable Inscripto"])
+    envio = st.checkbox("Ofrecer Envío Gratis", value=(precio >= UMBRAL_ENVIO_GRATIS))
+    if precio >= UMBRAL_ENVIO_GRATIS:
+        st.caption("⚠️ Envío gratis obligatorio (>$33.000)")
+
+# --- CÁLCULO EN TIEMPO REAL ---
+com, fijo, env, imp, tot_meli, gan, mar, mkp, quieb = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio)
+
+# --- PANTALLA PRINCIPAL (DASHBOARD) ---
+st.title("📊 Panel de Decisión")
+
+# 1. SEMÁFORO DE DECISIÓN
+if gan <= 0:
+    st.error(f"🚨 NO RENTABLE: Estás perdiendo ${abs(gan):,.0f} por unidad. ¡Sube el precio o no lo vendas!")
+elif mar < 15:
+    st.warning(f"⚠️ RENTABILIDAD BAJA: Margen muy ajustado ({mar:.1f}%). Riesgo alto si cambian los costos.")
+else:
+    st.success(f"✅ PRODUCTO RENTABLE: Margen saludable ({mar:.1f}%). ¡Avanzar con la compra/publicación!")
+
+# 2. MÉTRICAS CLAVE (Una sola fila)
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Ganancia Limpia", f"${gan:,.0f}")
+col2.metric("Margen de Venta", f"{mar:.1f}%")
+col3.metric("Markup (Retorno)", f"{mkp:.1f}%")
+col4.metric("Punto de Quiebre (Cero)", f"${quieb:,.0f}", help="Precio mínimo para no perder plata")
+
+st.divider()
+
+# 3. DESGLOSE DEL DINERO (Visualmente claro)
+st.subheader("¿A dónde va el dinero de la venta?")
+c1, c2, c3 = st.columns(3)
+
+with c1:
+    st.info(f"**Tu Costo (Mercadería):**\n### ${costo:,.0f}")
+with c2:
+    st.warning(f"**Se lo queda Mercado Libre:**\n### ${tot_meli:,.0f}")
+    st.caption(f"Comisión: ${com:,.0f} | Envío: ${env:,.0f} | Fijo: ${fijo:,.0f} | Imp: ${imp:,.0f}")
+with c3:
+    st.success(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
