@@ -162,7 +162,10 @@ else:
         modo_color = "info"
 
     com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
+    
+    # Cálculos mensuales y diarios
     unidades_mes = math.ceil(meta_ganancia / gan) if gan > 0 else 0
+    unidades_dia = math.ceil(unidades_mes / 30) if unidades_mes > 0 else 0
     inversion_inicial = unidades_mes * costo
     facturacion_mes = unidades_mes * precio
 
@@ -210,11 +213,15 @@ else:
             st.info(f"**Tu Costo (Mercadería):**\n### ${costo:,.0f}")
         with c2:
             st.warning(f"**Se lo queda ML / ARCA / Ads:**\n### ${tot_meli:,.0f}")
+            
+            # --- MEJORA: Explicación más clara del Costo Fijo de ML ---
+            nota_fijo = "<span style='color: #d9534f; font-weight: bold;'>Aplica</span>" if fijo > 0 else "<span style='color: #5cb85c;'>No aplica (Venta > $12.000)</span>"
+            
             st.markdown(f"""
             <ul style="font-size: 0.9rem; color: #555; margin-top: -10px;">
                 <li><b>Comisión ML:</b> ${com:,.0f}</li>
                 <li><b>Envío ML:</b> ${env:,.0f}</li>
-                <li><b>Costo Fijo (Unidad):</b> ${fijo:,.0f}</li>
+                <li><b>Costo Fijo Meli:</b> ${fijo:,.0f} <i><small>({nota_fijo})</small></i></li>
                 <li><b>Impuestos (ARCA):</b> ${imp:,.0f}</li>
                 <li><b>Mercado Ads:</b> ${costo_ads:,.0f}</li>
             </ul>
@@ -243,7 +250,7 @@ else:
             if gan_stress > 0 and mar_stress >= 5: st.success("✅ **Resiliencia (Soporta Ads):**\n\nSi necesitas encender Ads al 10% para impulsar tus ventas, sigues siendo rentable.")
             else: st.error("❌ **Dependencia Orgánica:**\n\nSi te ves obligado a encender publicidad (10% ACOS) para vender, perderás dinero.")
 
-        # --- NUEVO: TEST DE MERCADO INTERACTIVO ---
+        # --- TEST DE MERCADO INTERACTIVO ---
         st.divider()
         st.subheader("🕵️‍♂️ Evaluación de Mercado (Competencia)")
         st.caption("Responde estas 3 preguntas mirando a tus principales competidores en Mercado Libre para obtener un veredicto de viabilidad.")
@@ -283,7 +290,8 @@ else:
         else:
             col_p1, col_p2 = st.columns(2)
             with col_p1:
-                st.success(f"Para ganar **${meta_ganancia:,.0f}** limpios, necesitas vender **{unidades_mes} unidades** al mes.")
+                # --- MEJORA: PROYECCIÓN MENSUAL Y DIARIA ---
+                st.success(f"Para ganar **${meta_ganancia:,.0f}** limpios, necesitas vender **{unidades_mes} unidades al mes** (aprox. **{unidades_dia} unidades por día**).")
                 st.info(f"**Capital necesario (Inversión inicial):** ${inversion_inicial:,.0f}\n\n**Facturación bruta esperada:** ${facturacion_mes:,.0f}")
                 
                 st.divider()
@@ -292,14 +300,13 @@ else:
                     st.toast('¡Producto guardado exitosamente en tu Portafolio!', icon='✅')
 
             with col_p2:
-                # --- NUEVO: REFERENCIAS DE TAMAÑO FULL ---
+                # --- REFERENCIAS DE TAMAÑO FULL ---
                 tamano_full = st.selectbox("Costo de Mercado Envíos Full (Mensual/Unidad)", [
                     "Pequeño ($150)", 
                     "Mediano ($450)", 
                     "Grande ($1200)"
                 ])
                 
-                # Cuadro de guía de medidas
                 st.markdown("""
                 <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid #00a650;">
                     <h5 style="margin-top: 0; color: #333;">📏 Guía Oficial de Tamaños (Referencia Meli)</h5>
