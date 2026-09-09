@@ -68,7 +68,7 @@ st.title("📦 Calculadora de Rentabilidad - Mercado Libre")
 st.header("1. Identificación del Producto")
 col1, col2 = st.columns(2)
 with col1:
-    producto_nombre = st.text_input("Ingresa el nombre del producto (ej: Bebedero Automático Perro):")
+    producto_nombre = st.text_input("Ingresa el nombre del producto")
 with col2:
     if producto_nombre:
         categoria_nombre, categoria_id = predecir_categoria(producto_nombre)
