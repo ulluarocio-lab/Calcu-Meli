@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import math
 
 # --- CONFIGURACIÓN DE PARÁMETROS MELI (2026) ---
 UMBRAL_ENVIO_GRATIS = 33000
@@ -23,12 +24,9 @@ def predecir_categoria(titulo):
         return "Error API"
 
 def obtener_comision(tipo_pub):
-    if tipo_pub == "Clásica (Sin cuotas)":
-        return 0.15
-    elif tipo_pub == "Premium (3 Cuotas)":
-        return 0.20
-    else:  
-        return 0.25
+    if tipo_pub == "Clásica (Sin cuotas)": return 0.15
+    elif tipo_pub == "Premium (3 Cuotas)": return 0.20
+    else: return 0.25
 
 def calcular_precio_sugerido(costo, tipo, cond, envio_gratis, margen_deseado, acos_pct):
     porcentaje_comision = obtener_comision(tipo)
@@ -37,16 +35,13 @@ def calcular_precio_sugerido(costo, tipo, cond, envio_gratis, margen_deseado, ac
     porcentaje_ads = acos_pct / 100.0
     
     denominador = 1 - porcentaje_comision - porcentaje_impuestos - porcentaje_ads - margen_decimal
-    
-    if denominador <= 0:
-        return 0  
+    if denominador <= 0: return 0  
         
     precio_sug = costo / denominador
     for _ in range(5):  
         fijo = COSTO_FIJO_UNIDAD if precio_sug < UMBRAL_COSTO_FIJO else 0
         envio = COSTO_ENVIO_PROMEDIO if (envio_gratis or precio_sug >= UMBRAL_ENVIO_GRATIS) else 0
         precio_sug = (costo + fijo + envio) / denominador
-        
     return precio_sug
 
 def calcular_metricas(costo, precio, tipo, cond, envio_gratis, acos_pct):
@@ -72,19 +67,31 @@ def calcular_metricas(costo, precio, tipo, cond, envio_gratis, acos_pct):
 
     return comision, fijo, envio, impuestos, costo_ads, costos_meli, ganancia, margen, markup, quiebre, roas
 
-# --- CONFIGURACIÓN DE PÁGINA Y ESTILOS ---
+# --- CONFIGURACIÓN DE PÁGINA Y DISEÑO TIPOGRÁFICO ---
 st.set_page_config(page_title="Calculadora ML", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Montserrat', sans-serif;
+    }
+    h1, h2, h3 {
+        font-family: 'Playfair Display', serif !important;
+        color: #1a202c !important;
+        letter-spacing: -0.5px;
+    }
     .block-container { padding-top: 1.5rem; padding-bottom: 1.5rem; }
-    h1 { font-size: 1.8rem !important; }
+    /* Estilo de pestañas */
+    .stTabs [data-baseweb="tab-list"] { gap: 2rem; }
+    .stTabs [data-baseweb="tab"] { font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 1.1rem; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- PANEL LATERAL ORGANIZADO ---
 with st.sidebar:
-    st.markdown("### ⚙️ Ingreso de Datos")
+    st.markdown("### ⚙️ Parámetros de Venta")
     
     producto = st.text_input("Producto:")
     if producto:
@@ -92,7 +99,7 @@ with st.sidebar:
         
     colA, colB = st.columns(2)
     with colA:
-        costo_input = st.number_input("Costo ($)", min_value=0.0, value=None, step=100.0, placeholder="Ej: 15000")
+        costo_input = st.number_input("Costo ($)", min_value=0.0, value=None, step=100.0, placeholder="Obligatorio")
     with colB:
         precio_input = st.number_input("Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Opcional")
     
@@ -105,8 +112,8 @@ with st.sidebar:
     st.divider()
     
     st.markdown("### 🎯 Objetivos y Ads")
-    margen_obj = st.slider("Margen Deseado (%)", min_value=1, max_value=60, value=20, help="El porcentaje de ganancia limpia que deseas llevarte al bolsillo respecto al precio final.")
-    acos_input = st.slider("ACOS - Ads (%)", min_value=0, max_value=40, value=0, help="Advertising Cost of Sales: Porcentaje del precio del producto que se destina a pagar publicidad en Mercado Libre.")
+    margen_obj = st.slider("Margen Deseado (%)", min_value=1, max_value=60, value=20)
+    acos_input = st.slider("ACOS - Ads (%)", min_value=0, max_value=40, value=0)
     
     if acos_input == 0:
         st.info("💡 **Sin Ads:** Ideal probar con 5-10%.")
@@ -117,80 +124,110 @@ with st.sidebar:
     else:
         st.error("🔴 **ACOS Crítico:** Apaga o ajusta la campaña.")
 
-# --- PANTALLA PRINCIPAL ---
-st.title("📊 Panel de Decisión")
+# --- PANTALLA PRINCIPAL CON TABS ---
+st.title("Business Dashboard")
 
 if costo_input is None:
-    st.info("👈 Ingresa tu **Costo ($)** en el panel izquierdo para comenzar. Si dejas el precio de venta en blanco, calcularemos el ideal automáticamente.")
+    st.info("👈 Ingresa tu **Costo ($)** en el menú lateral para comenzar a analizar la rentabilidad y proyecciones de tu producto.")
     st.stop()
 
 costo = costo_input
 precio_sugerido = calcular_precio_sugerido(costo, tipo_pub, cond_fiscal, envio, margen_obj, acos_input)
 
-# LÓGICA DE DECISIÓN: AUTOMÁTICO VS MANUAL
+# Definir precio de trabajo (Manual o Automático)
 if precio_input is None or precio_input == 0:
     if precio_sugerido > 0:
         precio = precio_sugerido
-        st.success(f"🤖 **Modo Automático:** Estás viendo el análisis para el precio sugerido de **${precio:,.0f}** (Objetivo: {margen_obj}% margen).")
+        modo_msj = f"🤖 **Modo Automático:** Analizando precio sugerido de **${precio:,.0f}**"
+        modo_color = "success"
     else:
-        st.error(f"❌ Es matemáticamente imposible sacar un {margen_obj}% de margen con tus costos e impuestos. Ingresa un precio manual o reduce tu expectativa.")
+        st.error(f"❌ Imposible alcanzar {margen_obj}% de margen con los costos actuales. Reduce tu expectativa o ingresa un precio manual.")
         st.stop()
 else:
     precio = precio_input
-    st.info(f"⚙️ **Modo Manual:** Analizando tu precio personalizado de **${precio:,.0f}**.")
-    if precio_sugerido > 0:
-        st.caption(f"*(💡 Sugerencia: Para lograr exactamente un {margen_obj}% de margen limpio, deberías publicar a ${precio_sugerido:,.0f})*")
+    modo_msj = f"⚙️ **Modo Manual:** Analizando precio de **${precio:,.0f}**"
+    modo_color = "info"
 
-# --- CÁLCULOS ---
 com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
 
-st.write("") 
-col1, col2, col3, col4, col5 = st.columns(5)
+# Creación de Pestañas
+tab1, tab2 = st.tabs(["📊 Análisis de Producto", "🚀 Proyección y Envíos Full"])
 
-# Eliminamos el parámetro 'help' de las funciones de color para evitar el TypeError
-with col1:
-    if gan > 0:
-        st.success(f"**Ganancia**\n### ${gan:,.0f}")
+# ==========================================
+# PESTAÑA 1: ANÁLISIS DE PRODUCTO (ACTUAL)
+# ==========================================
+with tab1:
+    if modo_color == "success": st.success(modo_msj)
+    else: st.info(modo_msj)
+
+    st.write("") 
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    with col1:
+        if gan > 0: st.success(f"**Ganancia**\n### ${gan:,.0f}")
+        else: st.error(f"**Pérdida**\n### ${gan:,.0f}")
+    with col2:
+        if mar >= 15: st.success(f"**Margen**\n### {mar:.1f}%")
+        elif mar >= 10: st.warning(f"**Margen**\n### {mar:.1f}%")
+        else: st.error(f"**Margen**\n### {mar:.1f}%")
+    with col3:
+        st.info(f"**Markup**\n### {mkp:.1f}%")
+    with col4:
+        st.info(f"**Quiebre (0%)**\n### ${quieb:,.0f}")
+    with col5:
+        if acos_input == 0: st.info(f"**ROAS (Ads)**\n### N/A")
+        elif roas >= 10: st.success(f"**ROAS (Ads)**\n### {roas:.1f}x")
+        elif roas >= 6.6: st.warning(f"**ROAS (Ads)**\n### {roas:.1f}x")
+        else: st.error(f"**ROAS (Ads)**\n### {roas:.1f}x")
+
+    st.divider()
+    st.subheader("¿A dónde va el dinero de tu venta actual?")
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.info(f"**Tu Costo (Mercadería):**\n### ${costo:,.0f}")
+    with c2:
+        st.warning(f"**Se lo queda ML / ARCA / Ads:**\n### ${tot_meli:,.0f}")
+        st.caption(f"Comisión: ${com:,.0f} | Envío: ${env:,.0f} | Fijo: ${fijo:,.0f} | Imp (ARCA): ${imp:,.0f} | Ads: ${costo_ads:,.0f}")
+    with c3:
+        if gan > 0: st.success(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
+        else: st.error(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
+
+# ==========================================
+# PESTAÑA 2: PROYECCIÓN Y ENVÍOS FULL (NUEVO)
+# ==========================================
+with tab2:
+    st.markdown("### Planificación Financiera y Stock")
+    
+    if gan <= 0:
+        st.error("⚠️ El producto actualmente genera pérdida. No se puede proyectar un volumen de ventas sin margen positivo.")
     else:
-        st.error(f"**Pérdida**\n### ${gan:,.0f}")
-
-with col2:
-    if mar >= 15:
-        st.success(f"**Margen**\n### {mar:.1f}%")
-    elif mar >= 10:
-        st.warning(f"**Margen**\n### {mar:.1f}%")
-    else:
-        st.error(f"**Margen**\n### {mar:.1f}%")
-
-with col3:
-    st.info(f"**Markup**\n### {mkp:.1f}%")
-
-with col4:
-    st.info(f"**Quiebre (0%)**\n### ${quieb:,.0f}")
-
-with col5:
-    if acos_input == 0:
-        st.info(f"**ROAS (Ads)**\n### N/A")
-    elif roas >= 10:
-        st.success(f"**ROAS (Ads)**\n### {roas:.1f}x")
-    elif roas >= 6.6:
-        st.warning(f"**ROAS (Ads)**\n### {roas:.1f}x")
-    else:
-        st.error(f"**ROAS (Ads)**\n### {roas:.1f}x")
-
-st.divider()
-
-# --- DESGLOSE DEL DINERO ---
-st.subheader("¿A dónde va el dinero de tu venta actual?")
-c1, c2, c3 = st.columns(3)
-
-with c1:
-    st.info(f"**Tu Costo (Mercadería):**\n### ${costo:,.0f}")
-with c2:
-    st.warning(f"**Se lo queda ML / ARCA / Ads:**\n### ${tot_meli:,.0f}")
-    st.caption(f"Comisión: ${com:,.0f} | Envío: ${env:,.0f} | Fijo: ${fijo:,.0f} | Imp (ARCA): ${imp:,.0f} | Ads: ${costo_ads:,.0f}")
-with c3:
-    if gan > 0:
-        st.success(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
-    else:
-        st.error(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
+        col_p1, col_p2 = st.columns(2)
+        
+        with col_p1:
+            st.markdown("#### 1. Objetivo de Ingresos Mensual")
+            meta_ganancia = st.number_input("¿Cuánto dinero neto deseas ganar al mes con este producto?", min_value=0, value=500000, step=50000)
+            
+            unidades_mes = math.ceil(meta_ganancia / gan) if gan > 0 else 0
+            inversion_inicial = unidades_mes * costo
+            facturacion_mes = unidades_mes * precio
+            
+            st.success(f"Para ganar **${meta_ganancia:,.0f}** limpios, necesitas vender **{unidades_mes} unidades** al mes ({math.ceil(unidades_mes/30)} por día).")
+            st.info(f"**Capital necesario para comprar el stock:** ${inversion_inicial:,.0f}\n\n**Facturación bruta esperada:** ${facturacion_mes:,.0f}")
+            
+        with col_p2:
+            st.markdown("#### 2. Costos de Mercado Envíos Full")
+            st.caption("Estimación de almacenamiento mensual por unidad (Tarifas ref. 2026)")
+            
+            tamano_full = st.selectbox("Tamaño del Producto", ["Pequeño (ej. Reloj, Funda) - $150", "Mediano (ej. Zapatillas, Licuadora) - $450", "Grande (ej. Microondas, Silla) - $1200"])
+            
+            costo_full_unitario = 150 if "Pequeño" in tamano_full else 450 if "Mediano" in tamano_full else 1200
+            costo_full_total = unidades_mes * costo_full_unitario
+            ganancia_post_full = meta_ganancia - costo_full_total
+            
+            st.warning(f"**Costo estimado de bodega Full (Mes):** ${costo_full_total:,.0f}")
+            
+            if ganancia_post_full > 0:
+                st.success(f"**Ganancia Neta final operando en Full:** ${ganancia_post_full:,.0f}")
+            else:
+                st.error(f"🚨 Operar en Full consumirá toda tu ganancia mensual. Estás perdiendo ${abs(ganancia_post_full):,.0f}.")
