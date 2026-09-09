@@ -9,12 +9,15 @@ COSTO_ENVIO_PROMEDIO = 4500  # Costo estimado que te cobra ML por Mercado Envío
 
 def predecir_categoria(titulo):
     """Consulta a la API de Mercado Libre para predecir la categoría"""
-    url = f"https://api.mercadolibre.com/sites/MLA/category_predictor/predict?title={titulo}"
+    url = "https://api.mercadolibre.com/sites/MLA/domain_discovery/search"
     try:
-        response = requests.get(url)
+        # 'params' codifica automáticamente los espacios y caracteres especiales
+        response = requests.get(url, params={"q": titulo, "limit": 1})
         if response.status_code == 200:
             data = response.json()
-            return data.get("domain_name", "Categoría no encontrada"), data.get("id", "Sin ID")
+            if data and len(data) > 0:
+                return data[0].get("domain_name", "Categoría no encontrada"), data[0].get("category_id", "Sin ID")
+            return "Categoría no encontrada", None
         return "Error en API", None
     except:
         return "Error de conexión", None
@@ -68,7 +71,8 @@ st.title("📦 Calculadora de Rentabilidad - Mercado Libre")
 st.header("1. Identificación del Producto")
 col1, col2 = st.columns(2)
 with col1:
-    producto_nombre = st.text_input("Ingresa el nombre del producto")
+    # Se eliminó el texto de ejemplo que estaba entre paréntesis
+    producto_nombre = st.text_input("Ingresa el nombre del producto:")
 with col2:
     if producto_nombre:
         categoria_nombre, categoria_id = predecir_categoria(producto_nombre)
