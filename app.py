@@ -89,7 +89,20 @@ with st.sidebar:
     st.divider()
     st.subheader("🎯 Objetivos y Ads")
     margen_obj = st.slider("Margen Limpio Deseado (%)", min_value=1, max_value=60, value=20)
+    
     acos_input = st.slider("ACOS - Mercado Ads (%)", min_value=0, max_value=40, value=0, help="Porcentaje del precio destinado a publicidad. Ej: 10% ACOS equivale a un ROAS de 10.")
+    
+    # --- INDICADOR DE ACOS SANO ---
+    if acos_input == 0:
+        st.caption("⚪ Sin inversión en Ads activa.")
+    elif acos_input <= 10:
+        st.caption("🟢 **ACOS Excelente:** Alta rentabilidad asegurada.")
+    elif acos_input <= 15:
+        st.caption("🟡 **ACOS Sano:** Promedio ideal del mercado.")
+    elif acos_input <= 25:
+        st.caption("🟠 **ACOS Alto:** Riesgoso, vigila tu margen de ganancia.")
+    else:
+        st.caption("🔴 **ACOS Crítico:** Probabilidad alta de vender a pérdida.")
     
     st.divider()
     tipo_pub = st.selectbox("Publicación", ["Clásica", "Premium"])
@@ -99,6 +112,18 @@ with st.sidebar:
 # --- CÁLCULOS ---
 com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
 precio_sugerido = calcular_precio_sugerido(costo, tipo_pub, cond_fiscal, envio, margen_obj, acos_input)
+
+# --- DETERMINAR COLOR DEL ROAS ---
+if acos_input == 0:
+    roas_display = "N/A"
+elif roas >= 10:
+    roas_display = f"{roas:.1f}x 🟢"  # Excelente (ACOS <= 10%)
+elif roas >= 6.6:
+    roas_display = f"{roas:.1f}x 🟡"  # Sano (ACOS <= 15%)
+elif roas >= 4:
+    roas_display = f"{roas:.1f}x 🟠"  # Riesgoso (ACOS <= 25%)
+else:
+    roas_display = f"{roas:.1f}x 🔴"  # Crítico (ACOS > 25%)
 
 # --- PANTALLA PRINCIPAL ---
 st.title("📊 Panel de Decisión")
@@ -122,7 +147,7 @@ col1.metric("Ganancia Limpia", f"${gan:,.0f}")
 col2.metric("Margen Actual", f"{mar:.1f}%")
 col3.metric("Markup (Retorno)", f"{mkp:.1f}%")
 col4.metric("Punto de Quiebre", f"${quieb:,.0f}")
-col5.metric("ROAS (Ads)", f"{roas:.1f}x" if acos_input > 0 else "N/A")
+col5.metric("ROAS (Ads)", roas_display)
 
 st.divider()
 
