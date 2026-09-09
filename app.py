@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import math
 import pandas as pd
+import urllib.parse
 from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURACIÓN DE PARÁMETROS MELI (2026) ---
@@ -28,6 +29,54 @@ def predecir_categoria(titulo):
         return "No encontrada"
     except:
         return "Error API"
+
+def analizar_competencia_api(busqueda):
+    """Consulta la API pública de ML usando un término o link directo"""
+    if not busqueda:
+        return None
+        
+    # Si el usuario pegó un link, extraemos el término de búsqueda
+    if "mercadolibre.com" in busqueda:
+        try:
+            path = urllib.parse.urlparse(busqueda).path
+            busqueda = path.split("/")[-1].split("_")[0].replace("-", " ")
+        except:
+            pass # Si falla el parseo, intentamos con el texto crudo
+
+    url = "https://api.mercadolibre.com/sites/MLA/search"
+    try:
+        response = requests.get(url, params={"q": busqueda, "limit": 15})
+        if response.status_code == 200:
+            resultados = response.json().get("results", [])
+            if not resultados:
+                return None
+            
+            mercado_lideres = 0
+            envios_full = 0
+            precios = []
+            
+            for item in resultados:
+                precios.append(item.get("price", 0))
+                # Revisar reputación del vendedor
+                seller = item.get("seller", {})
+                reputacion = seller.get("seller_reputation", {}).get("power_seller_status")
+                if reputacion in ["platinum", "gold", "silver"]:
+                    mercado_lideres += 1
+                
+                # Revisar envíos full
+                if item.get("shipping", {}).get("logistic_type") == "fulfillment":
+                    envios_full += 1
+                    
+            precio_promedio = sum(precios) / len(precios) if precios else 0
+            return {
+                "termino_buscado": busqueda,
+                "total_analizados": len(resultados),
+                "mercado_lideres": mercado_lideres,
+                "envios_full": envios_full,
+                "precio_promedio": precio_promedio
+            }
+    except Exception as e:
+        return None
 
 def obtener_comision(tipo_pub):
     if tipo_pub == "Clásica (Sin cuotas)": return 0.15
@@ -103,7 +152,7 @@ st.markdown("""
 with st.sidebar:
     st.markdown("### ⚙️ 1. Producto y Precios")
     
-    producto_nombre = st.text_input("Nombre del Producto:")
+    producto_nombre = st.text_input("Nombre del Producto:", help="Escribe el producto para identificarlo.")
     if producto_nombre:
         st.caption(f"🏷️ {predecir_categoria(producto_nombre)}")
         
@@ -162,8 +211,6 @@ else:
         modo_color = "info"
 
     com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
-    
-    # Cálculos mensuales y diarios
     unidades_mes = math.ceil(meta_ganancia / gan) if gan > 0 else 0
     unidades_dia = math.ceil(unidades_mes / 30) if unidades_mes > 0 else 0
     inversion_inicial = unidades_mes * costo
@@ -213,10 +260,7 @@ else:
             st.info(f"**Tu Costo (Mercadería):**\n### ${costo:,.0f}")
         with c2:
             st.warning(f"**Se lo queda ML / ARCA / Ads:**\n### ${tot_meli:,.0f}")
-            
-            # --- MEJORA: Explicación más clara del Costo Fijo de ML ---
             nota_fijo = "<span style='color: #d9534f; font-weight: bold;'>Aplica</span>" if fijo > 0 else "<span style='color: #5cb85c;'>No aplica (Venta > $12.000)</span>"
-            
             st.markdown(f"""
             <ul style="font-size: 0.9rem; color: #555; margin-top: -10px;">
                 <li><b>Comisión ML:</b> ${com:,.0f}</li>
@@ -230,55 +274,76 @@ else:
             if gan > 0: st.success(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
             else: st.error(f"**Pérdida:**\n### ${gan:,.0f}")
 
-        # --- DIAGNÓSTICO FINANCIERO ---
         st.divider()
         st.subheader("🧠 Diagnóstico Financiero")
-        
         _, _, _, _, _, _, gan_stress, mar_stress, _, _, _ = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, max(10, acos_input))
-        
         diag1, diag2, diag3 = st.columns(3)
         with diag1:
-            if mar >= 15: st.success("✅ **Margen Óptimo:**\n\nTienes colchón ante imprevistos o devoluciones.")
-            elif mar >= 10: st.warning("⚠️ **Margen Justo:**\n\nTienes poco margen de error ante aumentos de comisiones.")
-            else: st.error("❌ **Margen Crítico:**\n\nEstás asumiendo todo el riesgo logístico por muy poca ganancia.")
-        
+            if mar >= 15: st.success("✅ **Margen Óptimo:**\n\nTienes colchón ante imprevistos.")
+            elif mar >= 10: st.warning("⚠️ **Margen Justo:**\n\nPoco margen de error.")
+            else: st.error("❌ **Margen Crítico:**\n\nMuy poca ganancia.")
         with diag2:
-            if mkp >= 30: st.success("✅ **ROI Sano:**\n\nTu capital se multiplica a un buen ritmo por cada peso invertido.")
-            else: st.warning("⚠️ **ROI Bajo:**\n\nRequieres inmovilizar mucho capital para sacar una ganancia relativamente baja.")
-                
+            if mkp >= 30: st.success("✅ **ROI Sano:**\n\nTu capital se multiplica bien.")
+            else: st.warning("⚠️ **ROI Bajo:**\n\nInmovilizas mucho capital.")
         with diag3:
-            if gan_stress > 0 and mar_stress >= 5: st.success("✅ **Resiliencia (Soporta Ads):**\n\nSi necesitas encender Ads al 10% para impulsar tus ventas, sigues siendo rentable.")
-            else: st.error("❌ **Dependencia Orgánica:**\n\nSi te ves obligado a encender publicidad (10% ACOS) para vender, perderás dinero.")
+            if gan_stress > 0 and mar_stress >= 5: st.success("✅ **Resiliencia (Ads):**\n\nSoporta Ads al 10%.")
+            else: st.error("❌ **Dependencia Orgánica:**\n\nSi enciendes Ads al 10%, pierdes dinero.")
 
-        # --- TEST DE MERCADO INTERACTIVO ---
+        # --- TEST DE MERCADO API ---
         st.divider()
-        st.subheader("🕵️‍♂️ Evaluación de Mercado (Competencia)")
-        st.caption("Responde estas 3 preguntas mirando a tus principales competidores en Mercado Libre para obtener un veredicto de viabilidad.")
+        st.subheader("🕵️‍♂️ Evaluación de Mercado (API Mercado Libre)")
+        st.caption("El sistema escanea en tiempo real los resultados para evaluar a tu competencia.")
         
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            comp_ventas = st.selectbox("1. ¿Qué volumen de ventas tienen los líderes (primeros 3)?", ["Altas (Más de 1000 vendidos)", "Medias (Cientos vendidos)", "Bajas (Pocos o sin ventas)"])
-            comp_calidad = st.selectbox("2. ¿Cómo es la calidad de sus publicaciones (fotos, descripción)?", ["Mala (Fotos feas, descripciones vacías)", "Normal (Fotos de catálogo, decente)", "Excelente (Videos, Mercado Líder, diseño pro)"])
-        with col_m2:
-            comp_dif = st.radio("3. ¿Tu producto tiene un diferencial claro?", ["Sí (Es un Combo/Kit, mejor calidad, diseño único)", "No (Es exactamente el mismo producto genérico)"])
+        # Campo para ingresar link o nombre
+        link_busqueda = st.text_input("🔗 Pega el Link de tu búsqueda en Mercado Libre (o nombre del producto):", 
+                                      value=producto_nombre, 
+                                      help="Puedes pegar la URL completa de tu búsqueda en Mercado Libre (ej: https://listado.mercadolibre.com.ar/correa-perro) para un análisis más preciso.")
+        
+        datos_api = analizar_competencia_api(link_busqueda)
+        
+        if datos_api:
+            st.info(f"🔎 **Analizando la primera página de resultados para: '{datos_api['termino_buscado'].title()}'**")
+            api_c1, api_c2, api_c3 = st.columns(3)
             
-            # Algoritmo de Score
-            score_mercado = 0
-            if "Altas" in comp_ventas: score_mercado += 1
-            elif "Medias" in comp_ventas: score_mercado += 0.5
+            porcentaje_lideres = (datos_api['mercado_lideres'] / datos_api['total_analizados']) * 100
+            porcentaje_full = (datos_api['envios_full'] / datos_api['total_analizados']) * 100
             
-            if "Mala" in comp_calidad: score_mercado += 2
-            elif "Normal" in comp_calidad: score_mercado += 1
+            with api_c1:
+                st.metric("Precio Promedio Top 15", f"${datos_api['precio_promedio']:,.0f}")
+                if precio > (datos_api['precio_promedio'] * 1.2):
+                    st.error("Estás un 20% más caro que el promedio.")
+                elif precio < (datos_api['precio_promedio'] * 0.8):
+                    st.warning("Estás muy barato, podrías subir el precio.")
+                else:
+                    st.success("Tu precio está en el rango competitivo.")
+                    
+            with api_c2:
+                st.metric("Vendedores MercadoLíder", f"{datos_api['mercado_lideres']} de {datos_api['total_analizados']}")
+                if porcentaje_lideres > 70:
+                    st.error("Nicho dominado por profesionales (Alta competencia).")
+                else:
+                    st.success("Baja profesionalización. Oportunidad de ganar con buenas fotos.")
+                    
+            with api_c3:
+                st.metric("Envíos por Full", f"{datos_api['envios_full']} de {datos_api['total_analizados']}")
+                if porcentaje_full > 60:
+                    st.warning("Obligatorio enviar a Full para competir en este nicho.")
+                else:
+                    st.info("Pocos usan Full. Si tú lo usas, destacarás rápidamente.")
             
-            if "Sí" in comp_dif: score_mercado += 2
+            st.write("")
+            st.markdown("#### ¿Tienes un diferencial?")
+            comp_dif = st.radio("Frente a esta competencia que ves, ¿Tu producto ofrece algo distinto?", 
+                               ["Sí (Es un Combo/Kit, mejor calidad, diseño único)", "No (Es exactamente el mismo producto genérico)"])
             
-            st.write("") # Espaciador
-            if score_mercado >= 4:
-                st.success("🌟 **Veredicto: Oportunidad de Oro.** ¡Avanza! Hay demanda demostrada, competidores débiles a los que puedes ganarles, y tienes un diferencial.")
-            elif score_mercado >= 2.5:
-                st.warning("⚖️ **Veredicto: Mercado Competitivo.** El nicho funciona, pero hay competencia. Tu éxito dependerá de hacer mejores fotos y tener buen presupuesto de Ads.")
+            if "Sí" in comp_dif and porcentaje_lideres <= 70:
+                st.success("🌟 **Veredicto: Oportunidad de Oro.** ¡Avanza! Tienes un diferencial y la competencia no es invencible.")
+            elif "No" in comp_dif and porcentaje_lideres > 70:
+                st.error("🚨 **Veredicto: Riesgo Elevado.** Estás vendiendo exactamente lo mismo en un nicho dominado por líderes. Te costará mucho posicionar.")
             else:
-                st.error("🚨 **Veredicto: Riesgo Elevado.** No hay demanda clara o la competencia es muy fuerte e idéntica a ti. Revalúa la idea antes de comprar stock.")
+                st.warning("⚖️ **Veredicto: Mercado Moderado.** Hay espacio para competir, pero dependerá fuertemente de tu estrategia publicitaria (Ads) y calidad de publicación.")
+        else:
+            st.warning("Escribe un producto o pega un link válido para escanear a la competencia.")
 
     # ==========================================
     # PESTAÑA 2: PROYECCIÓN Y ENVÍOS FULL
@@ -290,30 +355,23 @@ else:
         else:
             col_p1, col_p2 = st.columns(2)
             with col_p1:
-                # --- MEJORA: PROYECCIÓN MENSUAL Y DIARIA ---
                 st.success(f"Para ganar **${meta_ganancia:,.0f}** limpios, necesitas vender **{unidades_mes} unidades al mes** (aprox. **{unidades_dia} unidades por día**).")
                 st.info(f"**Capital necesario (Inversión inicial):** ${inversion_inicial:,.0f}\n\n**Facturación bruta esperada:** ${facturacion_mes:,.0f}")
                 
                 st.divider()
                 if st.button("💾 Añadir producto al Portafolio", type="primary", use_container_width=True):
                     guardar_producto(producto_nombre, costo, precio, gan, mar, mkp, unidades_mes, inversion_inicial, facturacion_mes)
-                    st.toast('¡Producto guardado exitosamente en tu Portafolio!', icon='✅')
+                    st.toast('¡Producto guardado exitosamente!', icon='✅')
 
             with col_p2:
-                # --- REFERENCIAS DE TAMAÑO FULL ---
-                tamano_full = st.selectbox("Costo de Mercado Envíos Full (Mensual/Unidad)", [
-                    "Pequeño ($150)", 
-                    "Mediano ($450)", 
-                    "Grande ($1200)"
-                ])
-                
+                tamano_full = st.selectbox("Costo de Mercado Envíos Full (Mensual/Unidad)", ["Pequeño ($150)", "Mediano ($450)", "Grande ($1200)"])
                 st.markdown("""
                 <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid #00a650;">
                     <h5 style="margin-top: 0; color: #333;">📏 Guía Oficial de Tamaños (Referencia Meli)</h5>
                     <ul style="font-size: 0.85rem; color: #555; margin-bottom: 0;">
-                        <li><b>Pequeño:</b> Hasta 1.200 cm³ (Ej: 10 x 15 x 8 cm) o peso < 500g. <i>(Fundas, billeteras, joyas).</i></li>
-                        <li><b>Mediano:</b> Hasta 30.000 cm³ (Ej: 30 x 30 x 33 cm) o peso < 5kg. <i>(Cajas de zapatillas, pavas eléctricas).</i></li>
-                        <li><b>Grande:</b> Más de 30.000 cm³. <i>(Microondas, sillas, electrodomésticos).</i></li>
+                        <li><b>Pequeño:</b> Hasta 1.200 cm³ (Ej: 10x15x8 cm) o peso < 500g. <i>(Fundas, billeteras).</i></li>
+                        <li><b>Mediano:</b> Hasta 30.000 cm³ (Ej: 30x30x33 cm) o peso < 5kg. <i>(Cajas de zapatillas).</i></li>
+                        <li><b>Grande:</b> Más de 30.000 cm³. <i>(Microondas, sillas).</i></li>
                     </ul>
                 </div>
                 """, unsafe_allow_html=True)
@@ -323,10 +381,8 @@ else:
                 ganancia_post_full = meta_ganancia - costo_full_total
                 
                 st.warning(f"**Costo estimado de Bodega Full (Total Mensual):** ${costo_full_total:,.0f}")
-                if ganancia_post_full > 0:
-                    st.success(f"**Ganancia Neta operando en Full:** ${ganancia_post_full:,.0f}")
-                else:
-                    st.error(f"🚨 Operar en Full consumirá tu ganancia mensual. Pierdes ${abs(ganancia_post_full):,.0f}.")
+                if ganancia_post_full > 0: st.success(f"**Ganancia Neta operando en Full:** ${ganancia_post_full:,.0f}")
+                else: st.error(f"🚨 Pierdes ${abs(ganancia_post_full):,.0f}.")
 
     # ==========================================
     # PESTAÑA 3: PORTAFOLIO GLOBAL
@@ -334,7 +390,7 @@ else:
     with tab3:
         st.markdown("### 💼 Consolidado de Inversiones")
         if len(st.session_state.portafolio) == 0:
-            st.info("Tu portafolio está vacío. Ve a la pestaña 'Proyección' y guarda algunos productos.")
+            st.info("Tu portafolio está vacío.")
         else:
             df_portafolio = pd.DataFrame(st.session_state.portafolio)
             inversion_total = df_portafolio["Inversión Req."].sum()
@@ -354,7 +410,7 @@ else:
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 csv = df_portafolio.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Descargar Portafolio (CSV)", data=csv, file_name='mi_portafolio.csv', mime='text/csv', use_container_width=True)
+                st.download_button("📥 Descargar (CSV)", data=csv, file_name='mi_portafolio.csv', mime='text/csv', use_container_width=True)
             with col_btn2:
                 if st.button("☁️ Sincronizar Portafolio (Sheets)", use_container_width=True):
                     with st.spinner("Sincronizando..."):
@@ -370,42 +426,25 @@ else:
     # ==========================================
     with tab4:
         if len(st.session_state.portafolio) == 0:
-            st.info("Agrega productos al portafolio para armar tu presupuesto y orden de compra.")
+            st.info("Agrega productos para armar tu presupuesto y orden de compra.")
         else:
             st.markdown("### 💰 Control de Presupuesto")
-            
             df_portafolio = pd.DataFrame(st.session_state.portafolio)
             inversion_total = df_portafolio["Inversión Req."].sum()
-            
-            presupuesto = st.number_input("¿De cuánto capital total dispones para comprar stock? ($)", min_value=0.0, value=inversion_total, step=50000.0)
-            
+            presupuesto = st.number_input("¿Capital total disponible? ($)", min_value=0.0, value=inversion_total, step=50000.0)
             balance = presupuesto - inversion_total
-            porcentaje_uso = (inversion_total / presupuesto) * 100 if presupuesto > 0 else 100
             
             if balance >= 0:
-                st.success(f"✅ **Presupuesto Sano:** Te sobran **${balance:,.0f}** de tu capital disponible.")
+                st.success(f"✅ Te sobran **${balance:,.0f}**.")
                 st.progress(min(inversion_total / presupuesto, 1.0))
             else:
-                st.error(f"🚨 **¡Presupuesto Excedido!** Te faltan **${abs(balance):,.0f}**. Debes inyectar más capital o eliminar unidades de tu portafolio.")
+                st.error(f"🚨 Te faltan **${abs(balance):,.0f}**.")
                 st.progress(1.0)
                 
-            st.caption(f"Has comprometido el **{porcentaje_uso:.1f}%** de tu capital en tu portafolio actual (${inversion_total:,.0f}).")
-            
             st.divider()
-            
             st.markdown("### 🛒 Orden de Compra (Proveedores)")
-            st.caption("Esta tabla filtra solo la información que necesita tu proveedor: Nombre, Costo Unitario, Cantidad a comprar y Total a pagar.")
-            
             df_oc = df_portafolio[['Producto', 'Costo Unit.', 'Unidades/Mes', 'Inversión Req.']].copy()
-            df_oc.columns = ['Producto a Comprar', 'Costo Unitario ($)', 'Cantidad', 'Total a Pagar ($)']
-            
+            df_oc.columns = ['Producto', 'Costo Unitario ($)', 'Cantidad', 'Total a Pagar ($)']
             st.dataframe(df_oc, use_container_width=True, hide_index=True)
-            
             csv_oc = df_oc.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Descargar Orden de Compra (CSV)",
-                data=csv_oc,
-                file_name='orden_de_compra_proveedores.csv',
-                mime='text/csv',
-                use_container_width=True
-            )
+            st.download_button("📥 Descargar Orden de Compra", data=csv_oc, file_name='orden_compra.csv', mime='text/csv')
