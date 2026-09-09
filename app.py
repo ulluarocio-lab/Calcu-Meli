@@ -288,4 +288,11 @@ else:
                 )
             with col_btn2:
                 if st.button("☁️ Sincronizar con Google Sheets", use_container_width=True):
-                    st.warning("⚠️ Requiere configuración previa de `st.secrets` en Google Cloud.")
+                    with st.spinner("Sincronizando datos con la nube..."):
+                        try:
+                            # Conectar y enviar los datos
+                            conn = st.connection("gsheets", type=GSheetsConnection)
+                            conn.update(worksheet="Hoja 1", data=df_portafolio)
+                            st.success("¡Sincronización exitosa! Revisa tu Google Sheet.")
+                        except Exception as e:
+                            st.error(f"Error al sincronizar. Revisa los Secrets y el nombre de la hoja en tu Google Sheet. Detalle: {e}")
