@@ -23,12 +23,11 @@ def predecir_categoria(titulo):
         return "Error API"
 
 def obtener_comision(tipo_pub):
-    """Devuelve el porcentaje de comisión según el tipo de publicación y cuotas"""
     if tipo_pub == "Clásica (Sin cuotas)":
         return 0.15
     elif tipo_pub == "Premium (3 Cuotas)":
         return 0.20
-    else:  # Premium (6 Cuotas)
+    else:  
         return 0.25
 
 def calcular_precio_sugerido(costo, tipo, cond, envio_gratis, margen_deseado, acos_pct):
@@ -97,7 +96,6 @@ with st.sidebar:
     with colB:
         precio_input = st.number_input("Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Opcional")
     
-    # Selector de publicación actualizado con opciones de cuotas
     tipo_pub = st.selectbox("Publicación y Cuotas", ["Clásica (Sin cuotas)", "Premium (3 Cuotas)", "Premium (6 Cuotas)"])
     cond_fiscal = st.selectbox("Impuestos", ["Monotributo", "Inscripto"])
     
@@ -149,35 +147,36 @@ com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_
 st.write("") 
 col1, col2, col3, col4, col5 = st.columns(5)
 
+# Eliminamos el parámetro 'help' de las funciones de color para evitar el TypeError
 with col1:
     if gan > 0:
-        st.success(f"**Ganancia**\n### ${gan:,.0f}", help="Dinero real y limpio que entra a tu bolsillo tras descontar el costo del producto, comisiones, envíos e impuestos de ARCA.")
+        st.success(f"**Ganancia**\n### ${gan:,.0f}")
     else:
-        st.error(f"**Pérdida**\n### ${gan:,.0f}", help="Estás perdiendo dinero en esta operación.")
+        st.error(f"**Pérdida**\n### ${gan:,.0f}")
 
 with col2:
     if mar >= 15:
-        st.success(f"**Margen**\n### {mar:.1f}%", help="Porcentaje de ganancia neta calculado sobre el precio final de venta. Refleja la rentabilidad de la operación.")
+        st.success(f"**Margen**\n### {mar:.1f}%")
     elif mar >= 10:
-        st.warning(f"**Margen**\n### {mar:.1f}%", help="Porcentaje de ganancia neta calculado sobre el precio final de venta.")
+        st.warning(f"**Margen**\n### {mar:.1f}%")
     else:
-        st.error(f"**Margen**\n### {mar:.1f}%", help="Porcentaje de ganancia neta calculado sobre el precio final de venta.")
+        st.error(f"**Margen**\n### {mar:.1f}%")
 
 with col3:
-    st.info(f"**Markup**\n### {mkp:.1f}%", help="Retorno sobre la Inversión. Es el porcentaje que aumentó tu dinero inicial (Ganancia dividida por tu Costo de Compra).")
+    st.info(f"**Markup**\n### {mkp:.1f}%")
 
 with col4:
-    st.info(f"**Quiebre (0%)**\n### ${quieb:,.0f}", help="Punto de Equilibrio (Break-even). Es el precio mínimo al que debes publicar para no perder ni ganar un solo peso.")
+    st.info(f"**Quiebre (0%)**\n### ${quieb:,.0f}")
 
 with col5:
     if acos_input == 0:
-        st.info(f"**ROAS (Ads)**\n### N/A", help="Activa la inversión publicitaria (ACOS) para ver esta métrica.")
+        st.info(f"**ROAS (Ads)**\n### N/A")
     elif roas >= 10:
-        st.success(f"**ROAS (Ads)**\n### {roas:.1f}x", help="Return on Ad Spend. Por cada $1 peso invertido en publicidad, generas este monto en ventas.")
+        st.success(f"**ROAS (Ads)**\n### {roas:.1f}x")
     elif roas >= 6.6:
-        st.warning(f"**ROAS (Ads)**\n### {roas:.1f}x", help="Return on Ad Spend. Por cada $1 peso invertido en publicidad, generas este monto en ventas.")
+        st.warning(f"**ROAS (Ads)**\n### {roas:.1f}x")
     else:
-        st.error(f"**ROAS (Ads)**\n### {roas:.1f}x", help="Return on Ad Spend. Por cada $1 peso invertido en publicidad, generas este monto en ventas.")
+        st.error(f"**ROAS (Ads)**\n### {roas:.1f}x")
 
 st.divider()
 
