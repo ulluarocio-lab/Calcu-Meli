@@ -28,13 +28,19 @@ def predecir_categoria(titulo):
     except:
         return "Error API"
 
-def calcular_precio_sugerido(costo, comision_pct, impuestos_pct, envio_gratis, margen_deseado, acos_pct):
-    porcentaje_comision = comision_pct / 100.0
-    porcentaje_imp = impuestos_pct / 100.0
+def obtener_comision(tipo_pub):
+    """Asigna automáticamente la comisión estimada de Mercado Libre"""
+    if tipo_pub == "Clásica (Sin cuotas)": return 0.15
+    elif tipo_pub == "Premium (3 Cuotas)": return 0.20
+    else: return 0.25
+
+def calcular_precio_sugerido(costo, tipo, cond, envio_gratis, margen_deseado, acos_pct):
+    porcentaje_comision = obtener_comision(tipo)
+    porcentaje_impuestos = 0.03 if cond == "Monotributo" else 0.135
     margen_decimal = margen_deseado / 100.0
     porcentaje_ads = acos_pct / 100.0
     
-    denominador = 1 - porcentaje_comision - porcentaje_imp - porcentaje_ads - margen_decimal
+    denominador = 1 - porcentaje_comision - porcentaje_impuestos - porcentaje_ads - margen_decimal
     if denominador <= 0: return 0  
         
     precio_sug = costo / denominador
@@ -44,15 +50,15 @@ def calcular_precio_sugerido(costo, comision_pct, impuestos_pct, envio_gratis, m
         precio_sug = (costo + fijo + envio) / denominador
     return precio_sug
 
-def calcular_metricas(costo, precio, comision_pct, impuestos_pct, envio_gratis, acos_pct):
-    porcentaje_comision = comision_pct / 100.0
-    porcentaje_imp = impuestos_pct / 100.0
+def calcular_metricas(costo, precio, tipo, cond, envio_gratis, acos_pct):
+    porcentaje_comision = obtener_comision(tipo)
+    porcentaje_impuestos = 0.03 if cond == "Monotributo" else 0.135
     porcentaje_ads = acos_pct / 100.0
 
     comision = precio * porcentaje_comision
     fijo = COSTO_FIJO_UNIDAD if precio < UMBRAL_COSTO_FIJO else 0
     envio = COSTO_ENVIO_PROMEDIO if (envio_gratis or precio >= UMBRAL_ENVIO_GRATIS) else 0
-    impuestos = precio * porcentaje_imp
+    impuestos = precio * porcentaje_impuestos
     costo_ads = precio * porcentaje_ads
     
     costos_meli = comision + fijo + envio + impuestos + costo_ads
@@ -62,7 +68,7 @@ def calcular_metricas(costo, precio, comision_pct, impuestos_pct, envio_gratis, 
     markup = (ganancia / costo) * 100 if costo > 0 else 0
     roas = (100 / acos_pct) if acos_pct > 0 else 0
     
-    denominador = 1 - porcentaje_comision - porcentaje_imp - porcentaje_ads
+    denominador = 1 - porcentaje_comision - porcentaje_impuestos - porcentaje_ads
     quiebre = (costo + envio + fijo) / denominador if denominador > 0 else 0
 
     return comision, fijo, envio, impuestos, costo_ads, costos_meli, ganancia, margen, markup, quiebre, roas
@@ -105,16 +111,14 @@ with st.sidebar:
     with colA:
         costo_input = st.number_input("Costo ($)", min_value=0.0, value=None, step=100.0, placeholder="Obligatorio", help="Costo de compra del producto al proveedor.")
     with colB:
-        precio_input = st.number_input("Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Opcional", help="Déjalo vacío para calcular el precio ideal.")
+        precio_input = st.number_input("Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Opcional", help="Déjalo vacío para que el sistema calcule el precio ideal por ti.")
     
     st.divider()
     
-    st.markdown("### 🏦 2. Retenciones Exactas")
-    colC, colD = st.columns(2)
-    with colC:
-        comision_ml = st.number_input("Comisión ML (%)", min_value=0.0, max_value=100.0, value=15.0, step=0.5, help="Revisa la ficha del producto en Mercado Libre. Clásica suele ser ~15%, Premium 3 cuotas ~20%, Premium 6 cuotas ~25%.")
-    with colD:
-        impuestos_arca = st.number_input("ARCA / IIBB (%)", min_value=0.0, max_value=100.0, value=3.0, step=0.5, help="Retenciones fiscales. Monotributistas promedian 3%, Responsables Inscriptos pueden superar el 13.5%.")
+    st.markdown("### 🏷️ 2. Publicación e Impuestos")
+    
+    tipo_pub = st.selectbox("Modalidad de Publicación", ["Clásica (Sin cuotas)", "Premium (3 Cuotas)", "Premium (6 Cuotas)"])
+    cond_fiscal = st.selectbox("Condición Fiscal (ARCA)", ["Monotributo", "Inscripto"])
     
     precio_ref = precio_input if precio_input is not None else 0
     envio = st.checkbox("Ofrecer Envío Gratis", value=(precio_ref >= UMBRAL_ENVIO_GRATIS))
@@ -138,7 +142,7 @@ if costo_input is None:
         pass 
 else:
     costo = costo_input
-    precio_sugerido = calcular_precio_sugerido(costo, comision_ml, impuestos_arca, envio, margen_obj, acos_input)
+    precio_sugerido = calcular_precio_sugerido(costo, tipo_pub, cond_fiscal, envio, margen_obj, acos_input)
 
     if precio_input is None or precio_input == 0:
         if precio_sugerido > 0:
@@ -153,7 +157,7 @@ else:
         modo_msj = f"⚙️ **Modo Manual:** Analizando precio de **${precio:,.0f}**"
         modo_color = "info"
 
-    com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, comision_ml, impuestos_arca, envio, acos_input)
+    com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
     unidades_mes = math.ceil(meta_ganancia / gan) if gan > 0 else 0
     inversion_inicial = unidades_mes * costo
     facturacion_mes = unidades_mes * precio
@@ -209,7 +213,7 @@ else:
             st.info(f"**Tu Costo (Mercadería):**\n### ${costo:,.0f}")
         with c2:
             st.warning(f"**Se lo queda ML / ARCA / Ads:**\n### ${tot_meli:,.0f}")
-            st.caption(f"Comis: ${com:,.0f} | Envío: ${env:,.0f} | Fijo: ${fijo:,.0f} | Imp: ${imp:,.0f} | Ads: ${costo_ads:,.0f}")
+            st.caption(f"Comisión: ${com:,.0f} | Envío: ${env:,.0f} | Fijo: ${fijo:,.0f} | Imp (ARCA): ${imp:,.0f} | Ads: ${costo_ads:,.0f}")
         with c3:
             if gan > 0: st.success(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
             else: st.error(f"**Pérdida:**\n### ${gan:,.0f}")
