@@ -7,9 +7,18 @@ from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURACIÓN DE PARÁMETROS MELI (2026) ---
 UMBRAL_ENVIO_GRATIS = 33000
-COSTO_FIJO_UNIDAD = 900
-UMBRAL_COSTO_FIJO = 12000
-COSTO_ENVIO_PROMEDIO = 4500
+COSTO_ENVIO_PROMEDIO = 7790 # Promedio MercadoLíder 0.5-1kg
+
+def obtener_costo_fijo(precio):
+    """Calcula el cargo fijo por unidad según la escala de precios de ML"""
+    if precio >= UMBRAL_ENVIO_GRATIS:
+        return 0
+    elif precio < 15000:
+        return 1330
+    elif precio < 24000:
+        return 2740
+    else:
+        return 3320
 
 # --- INICIALIZAR MEMORIA DEL PORTAFOLIO ---
 if 'portafolio' not in st.session_state:
@@ -31,11 +40,9 @@ def predecir_categoria(titulo):
         return "Error API"
 
 def analizar_competencia_api(busqueda):
-    """Consulta la API pública de ML usando un término o link directo"""
     if not busqueda:
         return None
         
-    # Limpieza Inteligente del Link
     if "mercadolibre.com" in busqueda:
         try:
             parsed_url = urllib.parse.urlparse(busqueda)
@@ -87,48 +94,64 @@ def analizar_competencia_api(busqueda):
         return None
 
 def obtener_comision(tipo_pub):
+    """Comisión base + costo de cuotas"""
     if tipo_pub == "Clásica (Sin cuotas)": return 0.15
     elif tipo_pub == "Premium (3 Cuotas)": return 0.20
     else: return 0.25
 
 def calcular_precio_sugerido(costo, tipo, cond, envio_gratis, margen_deseado, acos_pct):
-    porcentaje_comision = obtener_comision(tipo)
-    porcentaje_impuestos = 0.03 if cond == "Monotributo" else 0.135
+    pct_comision = obtener_comision(tipo)
+    pct_ads = acos_pct / 100.0
     margen_decimal = margen_deseado / 100.0
-    porcentaje_ads = acos_pct / 100.0
     
-    denominador = 1 - porcentaje_comision - porcentaje_impuestos - porcentaje_ads - margen_decimal
+    # Si es Monotributo, el 21% de IVA de ML es costo puro. Si es RI, se toma como crédito y no afecta el mark-up directo.
+    pct_impuestos = 0.03 if cond == "Monotributo" else 0.135
+    iva_ml_mult = 0.21 if cond == "Monotributo" else 0.0
+    
+    denominador = 1 - (pct_comision * (1 + iva_ml_mult)) - pct_impuestos - pct_ads - margen_decimal
     if denominador <= 0: return 0  
         
     precio_sug = costo / denominador
-    for _ in range(5):  
-        fijo = COSTO_FIJO_UNIDAD if precio_sug < UMBRAL_COSTO_FIJO else 0
+    for _ in range(7):  # Iteramos para ajustar tramos dinámicos de cargo fijo
+        fijo = obtener_costo_fijo(precio_sug)
         envio = COSTO_ENVIO_PROMEDIO if (envio_gratis or precio_sug >= UMBRAL_ENVIO_GRATIS) else 0
-        precio_sug = (costo + fijo + envio) / denominador
+        precio_sug = (costo + (fijo * (1 + iva_ml_mult)) + envio) / denominador
     return precio_sug
 
 def calcular_metricas(costo, precio, tipo, cond, envio_gratis, acos_pct):
-    porcentaje_comision = obtener_comision(tipo)
-    porcentaje_impuestos = 0.03 if cond == "Monotributo" else 0.135
-    porcentaje_ads = acos_pct / 100.0
+    pct_comision = obtener_comision(tipo)
+    pct_ads = acos_pct / 100.0
 
-    comision = precio * porcentaje_comision
-    fijo = COSTO_FIJO_UNIDAD if precio < UMBRAL_COSTO_FIJO else 0
+    comision = precio * pct_comision
+    fijo = obtener_costo_fijo(precio)
     envio = COSTO_ENVIO_PROMEDIO if (envio_gratis or precio >= UMBRAL_ENVIO_GRATIS) else 0
-    impuestos = precio * porcentaje_impuestos
-    costo_ads = precio * porcentaje_ads
+    costo_ads = precio * pct_ads
     
-    costos_meli = comision + fijo + envio + impuestos + costo_ads
-    ganancia = precio - costo - costos_meli
+    # ML cobra 21% de IVA sobre Comisión + Cuotas + Fijo
+    iva_ml_retencion = (comision + fijo) * 0.21
+    
+    if cond == "Monotributo":
+        pct_impuestos = 0.03 # IIBB
+        iva_costo_real = iva_ml_retencion # Se pierde
+    else:
+        pct_impuestos = 0.135 # IIBB + Saldo IVA neto
+        iva_costo_real = 0 # Actúa como crédito fiscal, no resta ganancia neta en este ejercicio
+        
+    impuestos_prov = precio * pct_impuestos
+    
+    costos_meli = comision + fijo + envio + iva_ml_retencion + costo_ads
+    # Ganancia deduciendo todos los costos puros
+    ganancia = precio - costo - comision - fijo - envio - costo_ads - iva_costo_real - impuestos_prov
     
     margen = (ganancia / precio) * 100 if precio > 0 else 0
     markup = (ganancia / costo) * 100 if costo > 0 else 0
     roas = (100 / acos_pct) if acos_pct > 0 else 0
     
-    denominador = 1 - porcentaje_comision - porcentaje_impuestos - porcentaje_ads
-    quiebre = (costo + envio + fijo) / denominador if denominador > 0 else 0
+    iva_ml_mult = 0.21 if cond == "Monotributo" else 0.0
+    denominador = 1 - (pct_comision * (1 + iva_ml_mult)) - pct_impuestos - pct_ads
+    quiebre = (costo + (fijo * (1 + iva_ml_mult)) + envio) / denominador if denominador > 0 else 0
 
-    return comision, fijo, envio, impuestos, costo_ads, costos_meli, ganancia, margen, markup, quiebre, roas
+    return comision, fijo, env, iva_ml_retencion, impuestos_prov, costo_ads, costos_meli, ganancia, margen, markup, quiebre, roas
 
 def guardar_producto(nombre, costo, precio, ganancia, margen, roi, unidades, inversion, facturacion):
     st.session_state.portafolio.append({
@@ -218,7 +241,8 @@ else:
         modo_msj = f"⚙️ **Modo Manual:** Analizando precio de **${precio:,.0f}**"
         modo_color = "info"
 
-    com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
+    com, fijo, env, iva_ml, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
+    
     unidades_mes = math.ceil(meta_ganancia / gan) if gan > 0 else 0
     unidades_dia = math.ceil(unidades_mes / 30) if unidades_mes > 0 else 0
     inversion_inicial = unidades_mes * costo
@@ -267,15 +291,22 @@ else:
         with c1: 
             st.info(f"**Tu Costo (Mercadería):**\n### ${costo:,.0f}")
         with c2:
-            st.warning(f"**Se lo queda ML / ARCA / Ads:**\n### ${tot_meli:,.0f}")
-            nota_fijo = "<span style='color: #d9534f; font-weight: bold;'>Aplica</span>" if fijo > 0 else "<span style='color: #5cb85c;'>No aplica (Venta > $12.000)</span>"
+            st.warning(f"**Retenciones y Costos (ML + ARCA):**\n### ${(tot_meli + imp):,.0f}")
+            
+            # --- DESGLOSE AVANZADO Y PRECISO ---
+            nota_fijo = "Por tramo de precio" if fijo > 0 else "Bonificado (≥ $33.000)"
+            iva_label = "Costo puro" if cond_fiscal == "Monotributo" else "Crédito a favor"
+            iva_color = "#d9534f" if cond_fiscal == "Monotributo" else "#5cb85c"
+            
             st.markdown(f"""
             <ul style="font-size: 0.9rem; color: #555; margin-top: -10px;">
-                <li><b>Comisión ML:</b> ${com:,.0f}</li>
+                <li><b>Comisión + Cuotas:</b> ${com:,.0f}</li>
+                <li><b>Cargo Fijo Meli:</b> ${fijo:,.0f} <i><small>({nota_fijo})</small></i></li>
+                <li><b>IVA s/ Cargos (21%):</b> ${iva_ml:,.0f} <i><small><span style='color: {iva_color};'>({iva_label})</span></small></i></li>
                 <li><b>Envío ML:</b> ${env:,.0f}</li>
-                <li><b>Costo Fijo Meli:</b> ${fijo:,.0f} <i><small>({nota_fijo})</small></i></li>
-                <li><b>Impuestos (ARCA):</b> ${imp:,.0f}</li>
                 <li><b>Mercado Ads:</b> ${costo_ads:,.0f}</li>
+                <hr style="margin: 5px 0;">
+                <li><b>Impuestos (IIBB):</b> ${imp:,.0f}</li>
             </ul>
             """, unsafe_allow_html=True)
         with c3:
@@ -284,7 +315,7 @@ else:
 
         st.divider()
         st.subheader("🧠 Diagnóstico Financiero")
-        _, _, _, _, _, _, gan_stress, mar_stress, _, _, _ = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, max(10, acos_input))
+        _, _, _, _, _, _, _, gan_stress, mar_stress, _, _, _ = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, max(10, acos_input))
         diag1, diag2, diag3 = st.columns(3)
         with diag1:
             if mar >= 15: st.success("✅ **Margen Óptimo:**\n\nTienes colchón ante imprevistos.")
