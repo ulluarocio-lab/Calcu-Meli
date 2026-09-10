@@ -40,9 +40,11 @@ def predecir_categoria(titulo):
         return "Error API"
 
 def analizar_competencia_api(busqueda):
+    """Consulta la API pública de ML usando un término o link directo"""
     if not busqueda:
         return None
         
+    # Limpieza Inteligente del Link
     if "mercadolibre.com" in busqueda:
         try:
             parsed_url = urllib.parse.urlparse(busqueda)
@@ -151,7 +153,7 @@ def calcular_metricas(costo, precio, tipo, cond, envio_gratis, acos_pct):
     denominador = 1 - (pct_comision * (1 + iva_ml_mult)) - pct_impuestos - pct_ads
     quiebre = (costo + (fijo * (1 + iva_ml_mult)) + envio) / denominador if denominador > 0 else 0
 
-    return comision, fijo, env, iva_ml_retencion, impuestos_prov, costo_ads, costos_meli, ganancia, margen, markup, quiebre, roas
+    return comision, fijo, envio, iva_ml_retencion, impuestos_prov, costo_ads, costos_meli, ganancia, margen, markup, quiebre, roas
 
 def guardar_producto(nombre, costo, precio, ganancia, margen, roi, unidades, inversion, facturacion):
     st.session_state.portafolio.append({
