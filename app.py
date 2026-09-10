@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import math
 import pandas as pd
-import urllib.parse
 from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURACIÓN DE PARÁMETROS MELI (2026) ---
@@ -38,62 +37,6 @@ def predecir_categoria(titulo):
         return "No encontrada"
     except:
         return "Error API"
-
-def analizar_competencia_api(busqueda):
-    """Consulta la API pública de ML usando un término o link directo"""
-    if not busqueda:
-        return None
-        
-    # Limpieza Inteligente del Link
-    if "mercadolibre.com" in busqueda:
-        try:
-            parsed_url = urllib.parse.urlparse(busqueda)
-            query_params = urllib.parse.parse_qs(parsed_url.query)
-            if 'q' in query_params:
-                busqueda = query_params['q'][0]
-            else:
-                path = parsed_url.path
-                ultima_parte = path.split("/")[-1]
-                busqueda = ultima_parte.split("_")[0].replace("-", " ")
-            busqueda = urllib.parse.unquote(busqueda).strip()
-        except Exception:
-            pass 
-
-    if not busqueda or busqueda == "":
-        return None
-
-    url = "https://api.mercadolibre.com/sites/MLA/search"
-    try:
-        response = requests.get(url, params={"q": busqueda, "limit": 15})
-        if response.status_code == 200:
-            resultados = response.json().get("results", [])
-            if not resultados:
-                return None
-            
-            mercado_lideres = 0
-            envios_full = 0
-            precios = []
-            
-            for item in resultados:
-                precios.append(item.get("price", 0))
-                seller = item.get("seller", {})
-                reputacion = seller.get("seller_reputation", {}).get("power_seller_status")
-                if reputacion in ["platinum", "gold", "silver"]:
-                    mercado_lideres += 1
-                
-                if item.get("shipping", {}).get("logistic_type") == "fulfillment":
-                    envios_full += 1
-                    
-            precio_promedio = sum(precios) / len(precios) if precios else 0
-            return {
-                "termino_buscado": busqueda,
-                "total_analizados": len(resultados),
-                "mercado_lideres": mercado_lideres,
-                "envios_full": envios_full,
-                "precio_promedio": precio_promedio
-            }
-    except Exception:
-        return None
 
 def obtener_comision(tipo_pub):
     """Comisión base + costo de cuotas"""
@@ -295,7 +238,6 @@ else:
         with c2:
             st.warning(f"**Retenciones y Costos (ML + ARCA):**\n### ${(tot_meli + imp):,.0f}")
             
-            # --- DESGLOSE AVANZADO Y PRECISO ---
             nota_fijo = "Por tramo de precio" if fijo > 0 else "Bonificado (≥ $33.000)"
             iva_label = "Costo puro" if cond_fiscal == "Monotributo" else "Crédito a favor"
             iva_color = "#d9534f" if cond_fiscal == "Monotributo" else "#5cb85c"
@@ -330,60 +272,34 @@ else:
             if gan_stress > 0 and mar_stress >= 5: st.success("✅ **Resiliencia (Ads):**\n\nSoporta Ads al 10%.")
             else: st.error("❌ **Dependencia Orgánica:**\n\nSi enciendes Ads al 10%, pierdes dinero.")
 
-        # --- TEST DE MERCADO API ---
+        # --- TEST DE MERCADO MANUAL (RESTAURADO) ---
         st.divider()
-        st.subheader("🕵️‍♂️ Evaluación de Mercado (API Mercado Libre)")
-        st.caption("El sistema escanea en tiempo real los resultados para evaluar a tu competencia.")
+        st.subheader("🕵️‍♂️ Evaluación de Mercado (Competencia)")
+        st.caption("Responde estas 3 preguntas mirando a tus principales competidores en Mercado Libre para obtener un veredicto de viabilidad.")
         
-        link_busqueda = st.text_input("🔗 Pega el Link de tu búsqueda en Mercado Libre (o nombre del producto):", 
-                                      value=producto_nombre, 
-                                      help="Puedes pegar la URL completa de tu búsqueda en Mercado Libre para un análisis preciso.")
-        
-        datos_api = analizar_competencia_api(link_busqueda)
-        
-        if datos_api:
-            st.info(f"🔎 **Analizando la primera página de resultados para: '{datos_api['termino_buscado'].title()}'**")
-            api_c1, api_c2, api_c3 = st.columns(3)
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            comp_ventas = st.selectbox("1. ¿Qué volumen de ventas tienen los líderes (primeros 3)?", ["Altas (Más de 1000 vendidos)", "Medias (Cientos vendidos)", "Bajas (Pocos o sin ventas)"])
+            comp_calidad = st.selectbox("2. ¿Cómo es la calidad de sus publicaciones (fotos, descripción)?", ["Mala (Fotos feas, descripciones vacías)", "Normal (Fotos de catálogo, decente)", "Excelente (Videos, Mercado Líder, diseño pro)"])
+        with col_m2:
+            comp_dif = st.radio("3. ¿Tu producto tiene un diferencial claro?", ["Sí (Es un Combo/Kit, mejor calidad, diseño único)", "No (Es exactamente el mismo producto genérico)"])
             
-            porcentaje_lideres = (datos_api['mercado_lideres'] / datos_api['total_analizados']) * 100
-            porcentaje_full = (datos_api['envios_full'] / datos_api['total_analizados']) * 100
+            score_mercado = 0
+            if "Altas" in comp_ventas: score_mercado += 1
+            elif "Medias" in comp_ventas: score_mercado += 0.5
             
-            with api_c1:
-                st.metric("Precio Promedio Top 15", f"${datos_api['precio_promedio']:,.0f}")
-                if precio > (datos_api['precio_promedio'] * 1.2):
-                    st.error("Estás un 20% más caro que el promedio.")
-                elif precio < (datos_api['precio_promedio'] * 0.8):
-                    st.warning("Estás muy barato, podrías subir el precio.")
-                else:
-                    st.success("Tu precio está en el rango competitivo.")
-                    
-            with api_c2:
-                st.metric("Vendedores MercadoLíder", f"{datos_api['mercado_lideres']} de {datos_api['total_analizados']}")
-                if porcentaje_lideres > 70:
-                    st.error("Nicho dominado por profesionales (Alta competencia).")
-                else:
-                    st.success("Baja profesionalización. Oportunidad de ganar con buenas fotos.")
-                    
-            with api_c3:
-                st.metric("Envíos por Full", f"{datos_api['envios_full']} de {datos_api['total_analizados']}")
-                if porcentaje_full > 60:
-                    st.warning("Obligatorio enviar a Full para competir en este nicho.")
-                else:
-                    st.info("Pocos usan Full. Si tú lo usas, destacarás rápidamente.")
+            if "Mala" in comp_calidad: score_mercado += 2
+            elif "Normal" in comp_calidad: score_mercado += 1
             
-            st.write("")
-            st.markdown("#### ¿Tienes un diferencial?")
-            comp_dif = st.radio("Frente a esta competencia que ves, ¿Tu producto ofrece algo distinto?", 
-                               ["Sí (Es un Combo/Kit, mejor calidad, diseño único)", "No (Es exactamente el mismo producto genérico)"])
+            if "Sí" in comp_dif: score_mercado += 2
             
-            if "Sí" in comp_dif and porcentaje_lideres <= 70:
-                st.success("🌟 **Veredicto: Oportunidad de Oro.** ¡Avanza! Tienes un diferencial y la competencia no es invencible.")
-            elif "No" in comp_dif and porcentaje_lideres > 70:
-                st.error("🚨 **Veredicto: Riesgo Elevado.** Estás vendiendo exactamente lo mismo en un nicho dominado por líderes. Te costará mucho posicionar.")
+            st.write("") 
+            if score_mercado >= 4:
+                st.success("🌟 **Veredicto: Oportunidad de Oro.** ¡Avanza! Hay demanda demostrada, competidores débiles a los que puedes ganarles, y tienes un diferencial.")
+            elif score_mercado >= 2.5:
+                st.warning("⚖️ **Veredicto: Mercado Competitivo.** El nicho funciona, pero hay competencia. Tu éxito dependerá de hacer mejores fotos y tener buen presupuesto de Ads.")
             else:
-                st.warning("⚖️ **Veredicto: Mercado Moderado.** Hay espacio para competir, pero dependerá fuertemente de tu estrategia publicitaria (Ads) y calidad de publicación.")
-        else:
-            st.warning("Escribe un producto o pega un link válido para escanear a la competencia.")
+                st.error("🚨 **Veredicto: Riesgo Elevado.** No hay demanda clara o la competencia es muy fuerte e idéntica a ti. Revalúa la idea antes de comprar stock.")
 
     # ==========================================
     # PESTAÑA 2: PROYECCIÓN Y ENVÍOS FULL
@@ -396,7 +312,7 @@ else:
             col_p1, col_p2 = st.columns(2)
             with col_p1:
                 st.success(f"Vende **{unidades_mes} unidades/mes** (aprox. **{unidades_dia} por día**) para ganar **${meta_ganancia:,.0f}** limpios.")
-                st.info(f"**Inversión:** ${inversion_inicial:,.0f} &nbsp;|&nbsp; **Facturación:** ${facturacion_mes:,.0f}")
+                st.info(f"**Inversión:** ${inversion_inicial:,.0f} | **Facturación:** ${facturacion_mes:,.0f}")
                 
                 st.divider()
                 if st.button("💾 Añadir producto al Portafolio", type="primary", use_container_width=True):
