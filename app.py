@@ -38,13 +38,13 @@ def limpiar_nombre_producto(texto):
             
             # 3er intento: Extraer de la URL principal (/funda-de-auto-para-perro)
             path = parsed.path.split('/')[-1]
-            busqueda = re.sub(r'^MLA-\d+-', '', path) # Quita códigos como MLA-123-
-            busqueda = busqueda.split('_')[0].replace('-', ' ') # Quita _NoIndex y guiones
+            busqueda = re.sub(r'^MLA-\d+-', '', path)
+            busqueda = busqueda.split('_')[0].replace('-', ' ')
             busqueda = urllib.parse.unquote(busqueda)
             
             return busqueda.strip().title()
         except:
-            pass # Si todo falla, devuelve el texto plano limpio
+            pass 
             
     return texto.strip().title()
 
@@ -187,7 +187,6 @@ st.markdown("""
 with st.sidebar:
     st.markdown("### ⚙️ 1. Producto y Precios")
     
-    # --- AQUÍ ESTÁ LA CORRECCIÓN: CONECTAMOS EL TEXT_INPUT AL LIMPIADOR ---
     producto_input = st.text_input("Nombre o Link del Producto:", help="Pega el link completo de Mercado Libre o escribe el nombre a mano.")
     producto_nombre = limpiar_nombre_producto(producto_input)
     
@@ -305,7 +304,7 @@ else:
                 <li><b>Comisión ML:</b> ${com_base:,.0f}</li>
                 <li><b>Cargo Fijo ML:</b> ${fijo:,.0f}</li>
                 <li><b>Envío ML:</b> ${env:,.0f}</li>
-                <li><b style='color:#d9534f;'>IVA ML (21% sobre cargos):</b> ${iva_meli:,.0f}</li>
+                <li><b style='color:#d9534f;'>IVA ML (21%):</b> ${iva_meli:,.0f}</li>
                 <li><b>IIBB Propios (ARCA):</b> ${imp_propios:,.0f}</li>
                 <li><b>Mercado Ads:</b> ${costo_ads:,.0f}</li>
             </ul>
@@ -314,22 +313,7 @@ else:
             if gan > 0: st.success(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
             else: st.error(f"**Pérdida:**\n### ${gan:,.0f}")
 
-        st.divider()
-        st.subheader("🧠 Diagnóstico Financiero")
-        _, _, _, _, _, _, _, gan_stress, mar_stress, _, _, _ = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, max(10, acos_input))
-        diag1, diag2, diag3 = st.columns(3)
-        with diag1:
-            if mar >= 15: st.success("✅ **Margen Óptimo:**\n\nTienes colchón ante imprevistos.")
-            elif mar >= 10: st.warning("⚠️ **Margen Justo:**\n\nPoco margen de error.")
-            else: st.error("❌ **Margen Crítico:**\n\nMuy poca ganancia.")
-        with diag2:
-            if mkp >= 30: st.success("✅ **ROI Sano:**\n\nTu capital se multiplica bien.")
-            else: st.warning("⚠️ **ROI Bajo:**\n\nInmovilizas mucho capital.")
-        with diag3:
-            if gan_stress > 0 and mar_stress >= 5: st.success("✅ **Resiliencia (Ads):**\n\nSoporta Ads al 10%.")
-            else: st.error("❌ **Dependencia Orgánica:**\n\nSi enciendes Ads al 10%, pierdes dinero.")
-
-        # --- TEST DE MERCADO API ---
+        # --- TEST DE MERCADO API Y VEREDICTO DE LA IA ---
         st.divider()
         st.subheader("🕵️‍♂️ Evaluación de Mercado (API Mercado Libre)")
         
@@ -341,41 +325,55 @@ else:
             
             porcentaje_lideres = (datos_api['mercado_lideres'] / datos_api['total_analizados']) * 100
             porcentaje_full = (datos_api['envios_full'] / datos_api['total_analizados']) * 100
+            precio_promedio = datos_api['precio_promedio']
             
             with api_c1:
-                st.metric("Precio Promedio Top 15", f"${datos_api['precio_promedio']:,.0f}")
-                if precio > (datos_api['precio_promedio'] * 1.2):
-                    st.error("Estás un 20% más caro que el promedio.")
-                elif precio < (datos_api['precio_promedio'] * 0.8):
-                    st.warning("Estás muy barato, podrías subir el precio.")
-                else:
-                    st.success("Tu precio está en el rango competitivo.")
-                    
+                st.metric("Precio Promedio Top 15", f"${precio_promedio:,.0f}")
             with api_c2:
-                st.metric("Vendedores MercadoLíder", f"{datos_api['mercado_lideres']} de {datos_api['total_analizados']}")
-                if porcentaje_lideres > 70:
-                    st.error("Nicho dominado por profesionales (Alta competencia).")
-                else:
-                    st.success("Baja profesionalización. Oportunidad de ganar con buenas fotos.")
-                    
+                st.metric("Saturación de MercadoLíderes", f"{porcentaje_lideres:.0f}%", help="Porcentaje de vendedores profesionales dominando la 1ra página.")
             with api_c3:
-                st.metric("Envíos por Full", f"{datos_api['envios_full']} de {datos_api['total_analizados']}")
-                if porcentaje_full > 60:
-                    st.warning("Obligatorio enviar a Full para competir en este nicho.")
-                else:
-                    st.info("Pocos usan Full. Si tú lo usas, destacarás rápidamente.")
+                st.metric("Dependencia Envíos Full", f"{porcentaje_full:.0f}%", help="Porcentaje de la 1ra página que usa bodega Full.")
             
             st.write("")
-            st.markdown("#### ¿Tienes un diferencial?")
-            comp_dif = st.radio("Frente a esta competencia que ves, ¿Tu producto ofrece algo distinto?", 
+            comp_dif = st.radio("¿Frente a esta competencia, tu producto ofrece un diferencial claro?", 
                                ["Sí (Es un Combo/Kit, mejor calidad, diseño único)", "No (Es exactamente el mismo producto genérico)"])
             
-            if "Sí" in comp_dif and porcentaje_lideres <= 70:
-                st.success("🌟 **Veredicto: Oportunidad de Oro.** ¡Avanza! Tienes un diferencial y la competencia no es invencible.")
-            elif "No" in comp_dif and porcentaje_lideres > 70:
-                st.error("🚨 **Veredicto: Riesgo Elevado.** Estás vendiendo exactamente lo mismo en un nicho dominado por líderes. Te costará mucho posicionar.")
+            st.divider()
+            st.subheader("🤖 Veredicto Algorítmico (Rentabilidad + Mercado)")
+            
+            # --- LÓGICA DEL VEREDICTO INTEGRADO ---
+            es_estrella = (mar >= 15) and (mkp >= 30) and ("Sí" in comp_dif or porcentaje_lideres <= 50)
+            es_riesgoso = (mar < 10) or (porcentaje_lideres > 70 and "No" in comp_dif)
+            
+            # 1. TÍTULO DEL VEREDICTO
+            if es_estrella:
+                st.success("🌟 **PRODUCTO ESTRELLA: ALTA VIABILIDAD.**\nTiene excelente salud financiera (buen margen y retorno) y herramientas para defenderte en el mercado. ¡Avanza con la compra de stock!")
+            elif es_riesgoso:
+                st.error("🚨 **ALTO RIESGO / EVITAR:**\nLos números financieros son muy ajustados o negativos, y estás entrando a competir contra gigantes vendiendo exactamente lo mismo. Te verás obligado a bajar el precio y perderás dinero. ¡Revalúa o crea un Kit!")
             else:
-                st.warning("⚖️ **Veredicto: Mercado Moderado.** Hay espacio para competir, pero dependerá fuertemente de tu estrategia publicitaria (Ads) y calidad de publicación.")
+                st.warning("⚖️ **MERCADO MODERADO / REQUIERE ATENCIÓN:**\nEs un producto viable pero requerirá trabajo. Presta mucha atención a tus campañas publicitarias y a la calidad de tus fotos para no quedar atrás.")
+            
+            # 2. DESGLOSE DEL ANÁLISIS
+            st.markdown("**🔍 Desglose del Analista:**")
+            
+            # Análisis de Precio
+            if precio < (precio_promedio * 0.8):
+                st.markdown("- 📉 **Guerra de precios:** Estás vendiendo muy barato respecto al promedio del mercado. Si tu margen actual aguanta, ganarás mercado rápido, pero cuidado con desangrar tu rentabilidad.")
+            elif precio > (precio_promedio * 1.2):
+                st.markdown("- 💎 **Precio Premium:** Tu precio es muy alto. El mercado exige que justifiques esto con una calidad visiblemente superior o vendiendo un Combo/Kit.")
+            else:
+                st.markdown("- 🎯 **Precio Competitivo:** Estás alineado con lo que el mercado está dispuesto a pagar hoy.")
+                
+            # Análisis de Saturación
+            if porcentaje_lideres > 70:
+                st.markdown("- 🦈 **Mercado Saturado:** El nicho está dominado por MercadoLíderes. Posicionar orgánicamente será casi imposible sin invertir agresivamente en Mercado Ads y enviar tu stock a Full de inmediato.")
+            elif porcentaje_lideres < 40:
+                st.markdown("- 🟢 **Oportunidad de Nicho:** Hay baja profesionalización en la competencia. Con buenas fotos, títulos claros y envío rápido, escalarás posiciones muy fácilmente.")
+                
+            # Análisis Financiero
+            if mar < 10:
+                st.markdown("- ⚠️ **Fragilidad Financiera:** Tu margen es tan bajo que cualquier devolución, reclamo o pequeño aumento de impuestos te dejará en pérdidas.")
+                
         else:
             st.warning("Escribe un producto o pega un link válido en el panel de la izquierda para escanear a la competencia.")
 
