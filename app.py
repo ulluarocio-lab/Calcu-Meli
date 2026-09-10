@@ -14,6 +14,40 @@ COSTO_ENVIO_PROMEDIO = 7790  # Base promedio MercadoLíder 0.5-1kg
 if 'portafolio' not in st.session_state:
     st.session_state.portafolio = []
 
+def limpiar_nombre_producto(texto):
+    """Extrae el nombre limpio ya sea de texto plano o de un link complejo de ML"""
+    if not texto: return ""
+    
+    if "mercadolibre.com" in texto or "http" in texto:
+        try:
+            parsed = urllib.parse.urlparse(texto)
+            
+            # 1er intento: Extraer del fragmento especial de búsqueda de ML (#D[A:TERMINO])
+            if parsed.fragment and parsed.fragment.startswith("D[A:"):
+                match = re.search(r'D\[A:(.*?)\]', parsed.fragment)
+                if match:
+                    busqueda = urllib.parse.unquote(match.group(1))
+                    return busqueda.strip().title()
+            
+            # 2do intento: Extraer de los parámetros (?q=termino)
+            qs = urllib.parse.parse_qs(parsed.query)
+            if 'q' in qs:
+                busqueda = qs['q'][0]
+                busqueda = urllib.parse.unquote(busqueda)
+                return busqueda.strip().title()
+            
+            # 3er intento: Extraer de la URL principal (/funda-de-auto-para-perro)
+            path = parsed.path.split('/')[-1]
+            busqueda = re.sub(r'^MLA-\d+-', '', path) # Quita códigos como MLA-123-
+            busqueda = busqueda.split('_')[0].replace('-', ' ') # Quita _NoIndex y guiones
+            busqueda = urllib.parse.unquote(busqueda)
+            
+            return busqueda.strip().title()
+        except:
+            pass # Si todo falla, devuelve el texto plano limpio
+            
+    return texto.strip().title()
+
 def predecir_categoria(titulo):
     url = "https://api.mercadolibre.com/sites/MLA/domain_discovery/search"
     try:
@@ -29,40 +63,14 @@ def predecir_categoria(titulo):
     except:
         return "Error API"
 
-def analizar_competencia_api(busqueda):
-    """Consulta la API pública de ML usando un término o limpiando un link directo"""
-    if not busqueda:
-        return None
-        
-    # --- LIMPIADOR INTELIGENTE DE LINKS ---
-    if "mercadolibre.com" in busqueda or "http" in busqueda:
-        try:
-            parsed_url = urllib.parse.urlparse(busqueda)
-            query_params = urllib.parse.parse_qs(parsed_url.query)
-            
-            # Caso 1: El link tiene un parámetro ?q=
-            if 'q' in query_params:
-                busqueda = query_params['q'][0]
-            else:
-                # Caso 2: El término está en el path (ej. /listado/funda-de-auto-para-perro)
-                path = parsed_url.path
-                ultima_parte = path.split("/")[-1]
-                # Limpiar artículos específicos de ML (MLA-123-) y guiones
-                busqueda = re.sub(r'^MLA-\d+-', '', ultima_parte)
-                busqueda = busqueda.split('_')[0].replace('-', ' ')
-                
-            # Decodificar espacios (%20) y caracteres raros
-            busqueda = urllib.parse.unquote(busqueda).strip()
-        except Exception:
-            pass # Si el limpiador falla, intenta buscar con el texto original
-
-    if not busqueda or busqueda == "":
+def analizar_competencia_api(busqueda_limpia):
+    """Consulta la API pública de ML usando el término limpio"""
+    if not busqueda_limpia:
         return None
 
-    # --- LLAMADA A LA API ---
     url = "https://api.mercadolibre.com/sites/MLA/search"
     try:
-        response = requests.get(url, params={"q": busqueda, "limit": 15})
+        response = requests.get(url, params={"q": busqueda_limpia, "limit": 15})
         if response.status_code == 200:
             resultados = response.json().get("results", [])
             if not resultados:
@@ -86,7 +94,7 @@ def analizar_competencia_api(busqueda):
                     
             precio_promedio = sum(precios) / len(precios) if precios else 0
             return {
-                "termino_buscado": busqueda,
+                "termino_buscado": busqueda_limpia,
                 "total_analizados": len(resultados),
                 "mercado_lideres": mercado_lideres,
                 "envios_full": envios_full,
@@ -179,10 +187,14 @@ st.markdown("""
 with st.sidebar:
     st.markdown("### ⚙️ 1. Producto y Precios")
     
-    # 1. EL USUARIO INGRESA EL NOMBRE AQUÍ PARA GUARDAR EL PRODUCTO ORDENADO
-    producto_nombre = st.text_input("Nombre del Producto:", help="Escribe el producto para identificarlo en el portafolio.")
+    # --- AQUÍ ESTÁ LA CORRECCIÓN: CONECTAMOS EL TEXT_INPUT AL LIMPIADOR ---
+    producto_input = st.text_input("Nombre o Link del Producto:", help="Pega el link completo de Mercado Libre o escribe el nombre a mano.")
+    producto_nombre = limpiar_nombre_producto(producto_input)
+    
     if producto_nombre:
-        st.caption(f"🏷️ {predecir_categoria(producto_nombre)}")
+        if "http" in producto_input:
+            st.success(f"🔗 Link convertido a: **{producto_nombre}**")
+        st.caption(f"📂 Categoría: {predecir_categoria(producto_nombre)}")
         
     colA, colB = st.columns(2)
     with colA:
@@ -317,21 +329,14 @@ else:
             if gan_stress > 0 and mar_stress >= 5: st.success("✅ **Resiliencia (Ads):**\n\nSoporta Ads al 10%.")
             else: st.error("❌ **Dependencia Orgánica:**\n\nSi enciendes Ads al 10%, pierdes dinero.")
 
-        # ==========================================
-        # 2. EL USUARIO PEGA EL LINK AQUI EN LA PESTAÑA 1
-        # ==========================================
+        # --- TEST DE MERCADO API ---
         st.divider()
         st.subheader("🕵️‍♂️ Evaluación de Mercado (API Mercado Libre)")
-        st.caption("El sistema escanea en tiempo real los resultados para evaluar a tu competencia.")
         
-        link_busqueda = st.text_input("🔗 Pega el Link de tu búsqueda en Mercado Libre (o usa el nombre):", 
-                                      value=producto_nombre,
-                                      help="Pega aquí el enlace de Mercado Libre. El sistema ignorará códigos basura como #D[...] automáticamente.")
-        
-        datos_api = analizar_competencia_api(link_busqueda)
+        datos_api = analizar_competencia_api(producto_nombre)
         
         if datos_api:
-            st.info(f"🔎 **Analizando la primera página de resultados para: '{datos_api['termino_buscado'].title()}'**")
+            st.info(f"🔎 **Analizando la primera página de resultados para: '{datos_api['termino_buscado']}'**")
             api_c1, api_c2, api_c3 = st.columns(3)
             
             porcentaje_lideres = (datos_api['mercado_lideres'] / datos_api['total_analizados']) * 100
@@ -372,7 +377,7 @@ else:
             else:
                 st.warning("⚖️ **Veredicto: Mercado Moderado.** Hay espacio para competir, pero dependerá fuertemente de tu estrategia publicitaria (Ads) y calidad de publicación.")
         else:
-            st.warning("Pega un link válido para escanear a la competencia.")
+            st.warning("Escribe un producto o pega un link válido en el panel de la izquierda para escanear a la competencia.")
 
     # ==========================================
     # PESTAÑA 2: PROYECCIÓN Y ENVÍOS FULL
