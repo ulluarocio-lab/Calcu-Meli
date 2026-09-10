@@ -1,10 +1,3 @@
-Comprendido. Prefieres un estilo de **resumen ejecutivo**: directo al grano, sin adornos, diciéndote si el producto sirve o no, con 3 puntos clave de fundamento.
-
-He eliminado toda la narrativa larga y la he reemplazado por un **Veredicto Directo** (Aprobado / Rechazado / Precaución) seguido de una lista de viñetas muy concisas con la acción sugerida (comprar o descartar).
-
-Aquí tienes el código de tu **`app.py`** modificado. Copia y reemplaza todo:
-
-```python
 import streamlit as st
 import requests
 import math
@@ -367,5 +360,3 @@ else:
             df_oc.columns = ['Producto', 'Costo Unitario ($)', 'Cantidad', 'Total a Pagar ($)']
             st.dataframe(df_oc, use_container_width=True, hide_index=True)
             st.download_button("📥 Orden de Compra", data=df_oc.to_csv(index=False).encode('utf-8'), file_name='orden.csv', mime='text/csv')
-
-```
