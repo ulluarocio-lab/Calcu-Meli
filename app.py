@@ -312,7 +312,7 @@ else:
             col_p1, col_p2 = st.columns(2)
             with col_p1:
                 st.success(f"Vende **{unidades_mes} unidades/mes** (aprox. **{unidades_dia} por día**) para ganar **${meta_ganancia:,.0f}** limpios.")
-                st.info(f"**Inversión:** ${inversion_inicial:,.0f} • **Facturación:** ${facturacion_mes:,.0f}")
+                st.info(f"**Capital necesario (Inversión inicial):** ${inversion_inicial:,.0f}\n\n**Facturación bruta esperada:** ${facturacion_mes:,.0f}")
                 
                 st.divider()
                 if st.button("💾 Añadir producto al Portafolio", type="primary", use_container_width=True):
