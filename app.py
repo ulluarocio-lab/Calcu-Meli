@@ -15,15 +15,16 @@ if 'portafolio' not in st.session_state:
     st.session_state.portafolio = []
 
 def limpiar_nombre_producto(texto):
-    """Extrae el nombre limpio ya sea de texto plano o de un link complejo de ML"""
+    """Extrae el nombre limpio de enlaces de búsqueda o publicaciones individuales"""
     if not texto: return ""
+    texto = texto.strip()
     
     if "mercadolibre.com" in texto or "http" in texto:
         try:
             parsed = urllib.parse.urlparse(texto)
             
-            # 1er intento: Extraer del fragmento especial de búsqueda de ML (#D[A:TERMINO])
-            if parsed.fragment and parsed.fragment.startswith("D[A:"):
+            # 1er intento: Extraer del fragmento especial de búsqueda (#D[A:TERMINO])
+            if parsed.fragment and "D[A:" in parsed.fragment:
                 match = re.search(r'D\[A:(.*?)\]', parsed.fragment)
                 if match:
                     busqueda = urllib.parse.unquote(match.group(1))
@@ -32,17 +33,22 @@ def limpiar_nombre_producto(texto):
             # 2do intento: Extraer de los parámetros (?q=termino)
             qs = urllib.parse.parse_qs(parsed.query)
             if 'q' in qs:
-                busqueda = qs['q'][0]
-                busqueda = urllib.parse.unquote(busqueda)
+                busqueda = urllib.parse.unquote(qs['q'][0])
                 return busqueda.strip().title()
             
-            # 3er intento: Extraer de la URL principal (/funda-de-auto-para-perro)
-            path = parsed.path.split('/')[-1]
-            busqueda = re.sub(r'^MLA-\d+-', '', path)
-            busqueda = busqueda.split('_')[0].replace('-', ' ')
-            busqueda = urllib.parse.unquote(busqueda)
-            
-            return busqueda.strip().title()
+            # 3er intento: Extraer analizando la estructura de la URL
+            path_parts = [p for p in parsed.path.split('/') if p]
+            if path_parts:
+                # Si es un listado, el nombre está después de "listado". Si es publicación, suele ser el primer bloque.
+                busqueda = path_parts[1] if path_parts[0] == 'listado' and len(path_parts) > 1 else path_parts[0]
+                
+                # Limpiar códigos MLA, sufijos _JM y reemplazar guiones
+                busqueda = re.sub(r'^MLA-?\d+-?', '', busqueda, flags=re.IGNORECASE)
+                busqueda = busqueda.split('_')[0].replace('-', ' ')
+                busqueda = urllib.parse.unquote(busqueda)
+                
+                if len(busqueda.strip()) > 2:
+                    return busqueda.strip().title()
         except:
             pass 
             
@@ -341,11 +347,9 @@ else:
             st.divider()
             st.subheader("🤖 Veredicto Algorítmico (Rentabilidad + Mercado)")
             
-            # --- LÓGICA DEL VEREDICTO INTEGRADO ---
             es_estrella = (mar >= 15) and (mkp >= 30) and ("Sí" in comp_dif or porcentaje_lideres <= 50)
             es_riesgoso = (mar < 10) or (porcentaje_lideres > 70 and "No" in comp_dif)
             
-            # 1. TÍTULO DEL VEREDICTO
             if es_estrella:
                 st.success("🌟 **PRODUCTO ESTRELLA: ALTA VIABILIDAD.**\nTiene excelente salud financiera (buen margen y retorno) y herramientas para defenderte en el mercado. ¡Avanza con la compra de stock!")
             elif es_riesgoso:
@@ -353,10 +357,8 @@ else:
             else:
                 st.warning("⚖️ **MERCADO MODERADO / REQUIERE ATENCIÓN:**\nEs un producto viable pero requerirá trabajo. Presta mucha atención a tus campañas publicitarias y a la calidad de tus fotos para no quedar atrás.")
             
-            # 2. DESGLOSE DEL ANÁLISIS
             st.markdown("**🔍 Desglose del Analista:**")
             
-            # Análisis de Precio
             if precio < (precio_promedio * 0.8):
                 st.markdown("- 📉 **Guerra de precios:** Estás vendiendo muy barato respecto al promedio del mercado. Si tu margen actual aguanta, ganarás mercado rápido, pero cuidado con desangrar tu rentabilidad.")
             elif precio > (precio_promedio * 1.2):
@@ -364,13 +366,11 @@ else:
             else:
                 st.markdown("- 🎯 **Precio Competitivo:** Estás alineado con lo que el mercado está dispuesto a pagar hoy.")
                 
-            # Análisis de Saturación
             if porcentaje_lideres > 70:
                 st.markdown("- 🦈 **Mercado Saturado:** El nicho está dominado por MercadoLíderes. Posicionar orgánicamente será casi imposible sin invertir agresivamente en Mercado Ads y enviar tu stock a Full de inmediato.")
             elif porcentaje_lideres < 40:
                 st.markdown("- 🟢 **Oportunidad de Nicho:** Hay baja profesionalización en la competencia. Con buenas fotos, títulos claros y envío rápido, escalarás posiciones muy fácilmente.")
                 
-            # Análisis Financiero
             if mar < 10:
                 st.markdown("- ⚠️ **Fragilidad Financiera:** Tu margen es tan bajo que cualquier devolución, reclamo o pequeño aumento de impuestos te dejará en pérdidas.")
                 
