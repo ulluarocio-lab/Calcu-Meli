@@ -5,11 +5,9 @@ import pandas as pd
 import urllib.parse
 from streamlit_gsheets import GSheetsConnection
 
-# --- CONFIGURACIÓN DE PARÁMETROS MELI (2026) ---
+# --- CONFIGURACIÓN DE PARÁMETROS MELI ACTUALIZADOS ---
 UMBRAL_ENVIO_GRATIS = 33000
-COSTO_FIJO_UNIDAD = 900
-UMBRAL_COSTO_FIJO = 12000
-COSTO_ENVIO_PROMEDIO = 4500
+COSTO_ENVIO_PROMEDIO = 7790  # Base promedio MercadoLíder 0.5-1kg
 
 # --- INICIALIZAR MEMORIA DEL PORTAFOLIO ---
 if 'portafolio' not in st.session_state:
@@ -31,17 +29,25 @@ def predecir_categoria(titulo):
         return "Error API"
 
 def analizar_competencia_api(busqueda):
-    """Consulta la API pública de ML usando un término o link directo"""
     if not busqueda:
         return None
         
-    # Si el usuario pegó un link, extraemos el término de búsqueda
     if "mercadolibre.com" in busqueda:
         try:
-            path = urllib.parse.urlparse(busqueda).path
-            busqueda = path.split("/")[-1].split("_")[0].replace("-", " ")
-        except:
-            pass # Si falla el parseo, intentamos con el texto crudo
+            parsed_url = urllib.parse.urlparse(busqueda)
+            query_params = urllib.parse.parse_qs(parsed_url.query)
+            if 'q' in query_params:
+                busqueda = query_params['q'][0]
+            else:
+                path = parsed_url.path
+                ultima_parte = path.split("/")[-1]
+                busqueda = ultima_parte.split("_")[0].replace("-", " ")
+            busqueda = urllib.parse.unquote(busqueda).strip()
+        except Exception:
+            pass 
+
+    if not busqueda or busqueda == "":
+        return None
 
     url = "https://api.mercadolibre.com/sites/MLA/search"
     try:
@@ -57,13 +63,10 @@ def analizar_competencia_api(busqueda):
             
             for item in resultados:
                 precios.append(item.get("price", 0))
-                # Revisar reputación del vendedor
                 seller = item.get("seller", {})
                 reputacion = seller.get("seller_reputation", {}).get("power_seller_status")
                 if reputacion in ["platinum", "gold", "silver"]:
                     mercado_lideres += 1
-                
-                # Revisar envíos full
                 if item.get("shipping", {}).get("logistic_type") == "fulfillment":
                     envios_full += 1
                     
@@ -75,7 +78,7 @@ def analizar_competencia_api(busqueda):
                 "envios_full": envios_full,
                 "precio_promedio": precio_promedio
             }
-    except Exception as e:
+    except Exception:
         return None
 
 def obtener_comision(tipo_pub):
@@ -83,44 +86,72 @@ def obtener_comision(tipo_pub):
     elif tipo_pub == "Premium (3 Cuotas)": return 0.20
     else: return 0.25
 
+def obtener_cargo_fijo(precio):
+    """Calcula el cargo fijo exacto por unidad vendida según el tramo de precio"""
+    if precio >= UMBRAL_ENVIO_GRATIS:
+        return 0
+    elif precio >= 24000:
+        return 3320
+    elif precio >= 15000:
+        return 2740
+    else:
+        return 1330
+
 def calcular_precio_sugerido(costo, tipo, cond, envio_gratis, margen_deseado, acos_pct):
     porcentaje_comision = obtener_comision(tipo)
-    porcentaje_impuestos = 0.03 if cond == "Monotributo" else 0.135
+    porcentaje_impuestos = 0.03 if cond == "Monotributo" else 0.0  # IIBB. Inscriptos lo manejan distinto.
     margen_decimal = margen_deseado / 100.0
     porcentaje_ads = acos_pct / 100.0
     
-    denominador = 1 - porcentaje_comision - porcentaje_impuestos - porcentaje_ads - margen_decimal
+    # Factor de IVA sobre comisiones (Meli cobra 21% extra sobre sus cargos)
+    # Monotributo lo absorbe como costo. Inscripto lo usa como crédito (no es costo directo).
+    factor_iva_meli = 1.21 if cond == "Monotributo" else 1.0 
+    
+    # Ecuación despejada: P = [Costo + Envío + (Fijo * 1.21)] / [1 - (Comisión * 1.21) - Impuestos - Ads - Margen]
+    denominador = 1 - (porcentaje_comision * factor_iva_meli) - porcentaje_impuestos - porcentaje_ads - margen_decimal
+    
     if denominador <= 0: return 0  
         
     precio_sug = costo / denominador
-    for _ in range(5):  
-        fijo = COSTO_FIJO_UNIDAD if precio_sug < UMBRAL_COSTO_FIJO else 0
+    for _ in range(5):  # Iteración para ajustar el tramo del costo fijo
+        fijo = obtener_cargo_fijo(precio_sug)
         envio = COSTO_ENVIO_PROMEDIO if (envio_gratis or precio_sug >= UMBRAL_ENVIO_GRATIS) else 0
-        precio_sug = (costo + fijo + envio) / denominador
+        precio_sug = (costo + envio + (fijo * factor_iva_meli)) / denominador
     return precio_sug
 
 def calcular_metricas(costo, precio, tipo, cond, envio_gratis, acos_pct):
+    # 1. Comisiones base
     porcentaje_comision = obtener_comision(tipo)
-    porcentaje_impuestos = 0.03 if cond == "Monotributo" else 0.135
-    porcentaje_ads = acos_pct / 100.0
-
-    comision = precio * porcentaje_comision
-    fijo = COSTO_FIJO_UNIDAD if precio < UMBRAL_COSTO_FIJO else 0
-    envio = COSTO_ENVIO_PROMEDIO if (envio_gratis or precio >= UMBRAL_ENVIO_GRATIS) else 0
-    impuestos = precio * porcentaje_impuestos
-    costo_ads = precio * porcentaje_ads
+    comision_base = precio * porcentaje_comision
     
-    costos_meli = comision + fijo + envio + impuestos + costo_ads
-    ganancia = precio - costo - costos_meli
+    # 2. Cargo fijo por unidad
+    fijo = obtener_cargo_fijo(precio)
+    
+    # 3. Envío Gratis
+    envio = COSTO_ENVIO_PROMEDIO if (envio_gratis or precio >= UMBRAL_ENVIO_GRATIS) else 0
+    
+    # 4. Impuestos sobre cargos de ML (IVA 21% sobre comisión + fijo)
+    iva_meli = (comision_base + fijo) * 0.21 if cond == "Monotributo" else 0 
+    
+    # 5. Publicidad (Ads)
+    costo_ads = precio * (acos_pct / 100.0)
+    
+    # 6. Impuestos propios (IIBB)
+    impuestos_propios = precio * 0.03 if cond == "Monotributo" else 0
+    
+    # 7. Resumen Total
+    costos_meli = comision_base + fijo + envio + iva_meli + costo_ads
+    ganancia = precio - comision_base - fijo - envio - iva_meli - impuestos_propios - costo - costo_ads
     
     margen = (ganancia / precio) * 100 if precio > 0 else 0
     markup = (ganancia / costo) * 100 if costo > 0 else 0
     roas = (100 / acos_pct) if acos_pct > 0 else 0
     
-    denominador = 1 - porcentaje_comision - porcentaje_impuestos - porcentaje_ads
-    quiebre = (costo + envio + fijo) / denominador if denominador > 0 else 0
+    factor_iva_meli = 1.21 if cond == "Monotributo" else 1.0
+    denominador = 1 - (porcentaje_comision * factor_iva_meli) - (0.03 if cond == "Monotributo" else 0) - (acos_pct / 100.0)
+    quiebre = (costo + envio + (fijo * factor_iva_meli)) / denominador if denominador > 0 else 0
 
-    return comision, fijo, envio, impuestos, costo_ads, costos_meli, ganancia, margen, markup, quiebre, roas
+    return comision_base, fijo, envio, iva_meli, impuestos_propios, costo_ads, costos_meli, ganancia, margen, markup, quiebre, roas
 
 def guardar_producto(nombre, costo, precio, ganancia, margen, roi, unidades, inversion, facturacion):
     st.session_state.portafolio.append({
@@ -158,21 +189,21 @@ with st.sidebar:
         
     colA, colB = st.columns(2)
     with colA:
-        costo_input = st.number_input("Costo ($)", min_value=0.0, value=None, step=100.0, placeholder="Obligatorio", help="Costo de compra al proveedor.")
+        costo_input = st.number_input("Costo ($)", min_value=0.0, value=None, step=100.0, placeholder="Obligatorio")
     with colB:
-        precio_input = st.number_input("Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Opcional", help="Déjalo vacío para calcular el precio ideal.")
+        precio_input = st.number_input("Venta ($)", min_value=0.0, value=None, step=100.0, placeholder="Opcional")
     
     st.divider()
     st.markdown("### 🏷️ 2. Publicación e Impuestos")
     tipo_pub = st.selectbox("Modalidad de Publicación", ["Clásica (Sin cuotas)", "Premium (3 Cuotas)", "Premium (6 Cuotas)"])
-    cond_fiscal = st.selectbox("Condición Fiscal (ARCA)", ["Monotributo", "Inscripto"])
+    cond_fiscal = st.selectbox("Condición Fiscal (ARCA)", ["Monotributo", "Inscripto"], help="Monotributistas absorben el 21% de IVA de Meli como costo puro.")
     
     precio_ref = precio_input if precio_input is not None else 0
     envio = st.checkbox("Ofrecer Envío Gratis", value=(precio_ref >= UMBRAL_ENVIO_GRATIS))
 
     st.divider()
     st.markdown("### 🎯 3. Objetivos y Ads")
-    meta_ganancia = st.number_input("Meta de Ganancia Mensual ($)", min_value=0, value=500000, step=50000, help="Ganancia neta mensual esperada.")
+    meta_ganancia = st.number_input("Meta de Ganancia Mensual ($)", min_value=0, value=500000, step=50000)
     margen_obj = st.slider("Margen Deseado (%)", min_value=1, max_value=60, value=20)
     
     acos_input = st.slider("ACOS - Inversión Ads (%)", min_value=0, max_value=40, value=0)
@@ -210,7 +241,7 @@ else:
         modo_msj = f"⚙️ **Modo Manual:** Analizando precio de **${precio:,.0f}**"
         modo_color = "info"
 
-    com, fijo, env, imp, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
+    com_base, fijo, env, iva_meli, imp_propios, costo_ads, tot_meli, gan, mar, mkp, quieb, roas = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, acos_input)
     unidades_mes = math.ceil(meta_ganancia / gan) if gan > 0 else 0
     unidades_dia = math.ceil(unidades_mes / 30) if unidades_mes > 0 else 0
     inversion_inicial = unidades_mes * costo
@@ -260,13 +291,13 @@ else:
             st.info(f"**Tu Costo (Mercadería):**\n### ${costo:,.0f}")
         with c2:
             st.warning(f"**Se lo queda ML / ARCA / Ads:**\n### ${tot_meli:,.0f}")
-            nota_fijo = "<span style='color: #d9534f; font-weight: bold;'>Aplica</span>" if fijo > 0 else "<span style='color: #5cb85c;'>No aplica (Venta > $12.000)</span>"
             st.markdown(f"""
             <ul style="font-size: 0.9rem; color: #555; margin-top: -10px;">
-                <li><b>Comisión ML:</b> ${com:,.0f}</li>
+                <li><b>Comisión ML:</b> ${com_base:,.0f}</li>
+                <li><b>Cargo Fijo ML:</b> ${fijo:,.0f}</li>
                 <li><b>Envío ML:</b> ${env:,.0f}</li>
-                <li><b>Costo Fijo Meli:</b> ${fijo:,.0f} <i><small>({nota_fijo})</small></i></li>
-                <li><b>Impuestos (ARCA):</b> ${imp:,.0f}</li>
+                <li><b style='color:#d9534f;'>IVA ML (21% sobre cargos):</b> ${iva_meli:,.0f}</li>
+                <li><b>IIBB Propios (ARCA):</b> ${imp_propios:,.0f}</li>
                 <li><b>Mercado Ads:</b> ${costo_ads:,.0f}</li>
             </ul>
             """, unsafe_allow_html=True)
@@ -276,7 +307,7 @@ else:
 
         st.divider()
         st.subheader("🧠 Diagnóstico Financiero")
-        _, _, _, _, _, _, gan_stress, mar_stress, _, _, _ = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, max(10, acos_input))
+        _, _, _, _, _, _, _, gan_stress, mar_stress, _, _, _ = calcular_metricas(costo, precio, tipo_pub, cond_fiscal, envio, max(10, acos_input))
         diag1, diag2, diag3 = st.columns(3)
         with diag1:
             if mar >= 15: st.success("✅ **Margen Óptimo:**\n\nTienes colchón ante imprevistos.")
@@ -294,10 +325,8 @@ else:
         st.subheader("🕵️‍♂️ Evaluación de Mercado (API Mercado Libre)")
         st.caption("El sistema escanea en tiempo real los resultados para evaluar a tu competencia.")
         
-        # Campo para ingresar link o nombre
         link_busqueda = st.text_input("🔗 Pega el Link de tu búsqueda en Mercado Libre (o nombre del producto):", 
-                                      value=producto_nombre, 
-                                      help="Puedes pegar la URL completa de tu búsqueda en Mercado Libre (ej: https://listado.mercadolibre.com.ar/correa-perro) para un análisis más preciso.")
+                                      value=producto_nombre)
         
         datos_api = analizar_competencia_api(link_busqueda)
         
@@ -346,7 +375,7 @@ else:
             st.warning("Escribe un producto o pega un link válido para escanear a la competencia.")
 
     # ==========================================
-    # PESTAÑA 2: PROYECCIÓN Y ENVÍOS FULL
+    # PESTAÑA 2, 3, 4 (Mantenidas y actualizadas con las variables nuevas)
     # ==========================================
     with tab2:
         st.markdown("### Planificación Financiera y Stock")
@@ -384,9 +413,6 @@ else:
                 if ganancia_post_full > 0: st.success(f"**Ganancia Neta operando en Full:** ${ganancia_post_full:,.0f}")
                 else: st.error(f"🚨 Pierdes ${abs(ganancia_post_full):,.0f}.")
 
-    # ==========================================
-    # PESTAÑA 3: PORTAFOLIO GLOBAL
-    # ==========================================
     with tab3:
         st.markdown("### 💼 Consolidado de Inversiones")
         if len(st.session_state.portafolio) == 0:
@@ -421,9 +447,6 @@ else:
                         except Exception as e:
                             st.error("Configura los st.secrets primero.")
 
-    # ==========================================
-    # PESTAÑA 4: PRESUPUESTO Y ORDEN DE COMPRA
-    # ==========================================
     with tab4:
         if len(st.session_state.portafolio) == 0:
             st.info("Agrega productos para armar tu presupuesto y orden de compra.")
