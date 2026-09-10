@@ -3,6 +3,7 @@ import requests
 import math
 import pandas as pd
 import urllib.parse
+import re
 from streamlit_gsheets import GSheetsConnection
 
 # --- CONFIGURACIÓN DE PARÁMETROS MELI ACTUALIZADOS ---
@@ -12,6 +13,33 @@ COSTO_ENVIO_PROMEDIO = 7790  # Base promedio MercadoLíder 0.5-1kg
 # --- INICIALIZAR MEMORIA DEL PORTAFOLIO ---
 if 'portafolio' not in st.session_state:
     st.session_state.portafolio = []
+
+def limpiar_nombre_producto(texto):
+    """Extrae el nombre limpio ya sea de texto plano o de un link complejo de ML"""
+    if not texto: return ""
+    texto = urllib.parse.unquote(texto).strip()
+    
+    if "mercadolibre.com" in texto:
+        try:
+            parsed = urllib.parse.urlparse(texto)
+            qs = urllib.parse.parse_qs(parsed.query)
+            
+            # Caso A: Tiene parámetro de búsqueda directo (?q=...)
+            if 'q' in qs:
+                busqueda = qs['q'][0]
+            else:
+                # Caso B: Está en la URL (ej. /funda-de-auto-para-perro o /MLA-123-funda-...)
+                busqueda = parsed.path.split('/')[-1]
+                # Limpiar prefijos de artículos específicos (ej. MLA-11442233-)
+                busqueda = re.sub(r'^MLA-\d+-', '', busqueda)
+                # Limpiar sufijos basura (ej. _NoIndex_True o _JM) y reemplazar guiones
+                busqueda = busqueda.split('_')[0].replace('-', ' ')
+                
+            return busqueda.strip().title()
+        except:
+            return texto.title()
+            
+    return texto.title()
 
 def predecir_categoria(titulo):
     url = "https://api.mercadolibre.com/sites/MLA/domain_discovery/search"
@@ -28,30 +56,14 @@ def predecir_categoria(titulo):
     except:
         return "Error API"
 
-def analizar_competencia_api(busqueda):
-    if not busqueda:
-        return None
-        
-    if "mercadolibre.com" in busqueda:
-        try:
-            parsed_url = urllib.parse.urlparse(busqueda)
-            query_params = urllib.parse.parse_qs(parsed_url.query)
-            if 'q' in query_params:
-                busqueda = query_params['q'][0]
-            else:
-                path = parsed_url.path
-                ultima_parte = path.split("/")[-1]
-                busqueda = ultima_parte.split("_")[0].replace("-", " ")
-            busqueda = urllib.parse.unquote(busqueda).strip()
-        except Exception:
-            pass 
-
-    if not busqueda or busqueda == "":
+def analizar_competencia_api(busqueda_limpia):
+    """Consulta la API pública de ML usando el término limpio"""
+    if not busqueda_limpia:
         return None
 
     url = "https://api.mercadolibre.com/sites/MLA/search"
     try:
-        response = requests.get(url, params={"q": busqueda, "limit": 15})
+        response = requests.get(url, params={"q": busqueda_limpia, "limit": 15})
         if response.status_code == 200:
             resultados = response.json().get("results", [])
             if not resultados:
@@ -63,16 +75,19 @@ def analizar_competencia_api(busqueda):
             
             for item in resultados:
                 precios.append(item.get("price", 0))
+                # Revisar reputación
                 seller = item.get("seller", {})
                 reputacion = seller.get("seller_reputation", {}).get("power_seller_status")
                 if reputacion in ["platinum", "gold", "silver"]:
                     mercado_lideres += 1
+                
+                # Revisar envíos full
                 if item.get("shipping", {}).get("logistic_type") == "fulfillment":
                     envios_full += 1
                     
             precio_promedio = sum(precios) / len(precios) if precios else 0
             return {
-                "termino_buscado": busqueda,
+                "termino_buscado": busqueda_limpia,
                 "total_analizados": len(resultados),
                 "mercado_lideres": mercado_lideres,
                 "envios_full": envios_full,
@@ -88,58 +103,40 @@ def obtener_comision(tipo_pub):
 
 def obtener_cargo_fijo(precio):
     """Calcula el cargo fijo exacto por unidad vendida según el tramo de precio"""
-    if precio >= UMBRAL_ENVIO_GRATIS:
-        return 0
-    elif precio >= 24000:
-        return 3320
-    elif precio >= 15000:
-        return 2740
-    else:
-        return 1330
+    if precio >= UMBRAL_ENVIO_GRATIS: return 0
+    elif precio >= 24000: return 3320
+    elif precio >= 15000: return 2740
+    else: return 1330
 
 def calcular_precio_sugerido(costo, tipo, cond, envio_gratis, margen_deseado, acos_pct):
     porcentaje_comision = obtener_comision(tipo)
-    porcentaje_impuestos = 0.03 if cond == "Monotributo" else 0.0  # IIBB. Inscriptos lo manejan distinto.
+    porcentaje_impuestos = 0.03 if cond == "Monotributo" else 0.0  
     margen_decimal = margen_deseado / 100.0
     porcentaje_ads = acos_pct / 100.0
     
-    # Factor de IVA sobre comisiones (Meli cobra 21% extra sobre sus cargos)
-    # Monotributo lo absorbe como costo. Inscripto lo usa como crédito (no es costo directo).
     factor_iva_meli = 1.21 if cond == "Monotributo" else 1.0 
     
-    # Ecuación despejada: P = [Costo + Envío + (Fijo * 1.21)] / [1 - (Comisión * 1.21) - Impuestos - Ads - Margen]
     denominador = 1 - (porcentaje_comision * factor_iva_meli) - porcentaje_impuestos - porcentaje_ads - margen_decimal
-    
     if denominador <= 0: return 0  
         
     precio_sug = costo / denominador
-    for _ in range(5):  # Iteración para ajustar el tramo del costo fijo
+    for _ in range(5):  
         fijo = obtener_cargo_fijo(precio_sug)
         envio = COSTO_ENVIO_PROMEDIO if (envio_gratis or precio_sug >= UMBRAL_ENVIO_GRATIS) else 0
         precio_sug = (costo + envio + (fijo * factor_iva_meli)) / denominador
     return precio_sug
 
 def calcular_metricas(costo, precio, tipo, cond, envio_gratis, acos_pct):
-    # 1. Comisiones base
     porcentaje_comision = obtener_comision(tipo)
     comision_base = precio * porcentaje_comision
     
-    # 2. Cargo fijo por unidad
     fijo = obtener_cargo_fijo(precio)
-    
-    # 3. Envío Gratis
     envio = COSTO_ENVIO_PROMEDIO if (envio_gratis or precio >= UMBRAL_ENVIO_GRATIS) else 0
     
-    # 4. Impuestos sobre cargos de ML (IVA 21% sobre comisión + fijo)
     iva_meli = (comision_base + fijo) * 0.21 if cond == "Monotributo" else 0 
-    
-    # 5. Publicidad (Ads)
     costo_ads = precio * (acos_pct / 100.0)
-    
-    # 6. Impuestos propios (IIBB)
     impuestos_propios = precio * 0.03 if cond == "Monotributo" else 0
     
-    # 7. Resumen Total
     costos_meli = comision_base + fijo + envio + iva_meli + costo_ads
     ganancia = precio - comision_base - fijo - envio - iva_meli - impuestos_propios - costo - costo_ads
     
@@ -183,9 +180,13 @@ st.markdown("""
 with st.sidebar:
     st.markdown("### ⚙️ 1. Producto y Precios")
     
-    producto_nombre = st.text_input("Nombre del Producto:", help="Escribe el producto para identificarlo.")
+    # --- AQUÍ SUCEDE LA MAGIA DEL LINK ---
+    producto_input = st.text_input("Nombre del Producto o Link de ML:", help="Escribe el nombre o pega directamente el link de búsqueda de Mercado Libre.")
+    producto_nombre = limpiar_nombre_producto(producto_input)
+    
     if producto_nombre:
-        st.caption(f"🏷️ {predecir_categoria(producto_nombre)}")
+        st.success(f"🏷️ Detectado: **{producto_nombre}**")
+        st.caption(f"📂 Categoría: {predecir_categoria(producto_nombre)}")
         
     colA, colB = st.columns(2)
     with colA:
@@ -323,15 +324,12 @@ else:
         # --- TEST DE MERCADO API ---
         st.divider()
         st.subheader("🕵️‍♂️ Evaluación de Mercado (API Mercado Libre)")
-        st.caption("El sistema escanea en tiempo real los resultados para evaluar a tu competencia.")
         
-        link_busqueda = st.text_input("🔗 Pega el Link de tu búsqueda en Mercado Libre (o nombre del producto):", 
-                                      value=producto_nombre)
-        
-        datos_api = analizar_competencia_api(link_busqueda)
+        # Eliminamos la casilla extra de link aquí, ahora todo usa producto_nombre directamente
+        datos_api = analizar_competencia_api(producto_nombre)
         
         if datos_api:
-            st.info(f"🔎 **Analizando la primera página de resultados para: '{datos_api['termino_buscado'].title()}'**")
+            st.info(f"🔎 **Analizando la primera página de resultados para: '{datos_api['termino_buscado']}'**")
             api_c1, api_c2, api_c3 = st.columns(3)
             
             porcentaje_lideres = (datos_api['mercado_lideres'] / datos_api['total_analizados']) * 100
@@ -372,10 +370,10 @@ else:
             else:
                 st.warning("⚖️ **Veredicto: Mercado Moderado.** Hay espacio para competir, pero dependerá fuertemente de tu estrategia publicitaria (Ads) y calidad de publicación.")
         else:
-            st.warning("Escribe un producto o pega un link válido para escanear a la competencia.")
+            st.warning("Escribe un producto o pega un link válido en el panel de la izquierda para escanear a la competencia.")
 
     # ==========================================
-    # PESTAÑA 2, 3, 4 (Mantenidas y actualizadas con las variables nuevas)
+    # PESTAÑA 2: PROYECCIÓN Y ENVÍOS FULL
     # ==========================================
     with tab2:
         st.markdown("### Planificación Financiera y Stock")
@@ -413,6 +411,9 @@ else:
                 if ganancia_post_full > 0: st.success(f"**Ganancia Neta operando en Full:** ${ganancia_post_full:,.0f}")
                 else: st.error(f"🚨 Pierdes ${abs(ganancia_post_full):,.0f}.")
 
+    # ==========================================
+    # PESTAÑA 3: PORTAFOLIO GLOBAL
+    # ==========================================
     with tab3:
         st.markdown("### 💼 Consolidado de Inversiones")
         if len(st.session_state.portafolio) == 0:
@@ -447,6 +448,9 @@ else:
                         except Exception as e:
                             st.error("Configura los st.secrets primero.")
 
+    # ==========================================
+    # PESTAÑA 4: PRESUPUESTO Y ORDEN DE COMPRA
+    # ==========================================
     with tab4:
         if len(st.session_state.portafolio) == 0:
             st.info("Agrega productos para armar tu presupuesto y orden de compra.")
