@@ -1,3 +1,10 @@
+Comprendido. Prefieres un estilo de **resumen ejecutivo**: directo al grano, sin adornos, diciéndote si el producto sirve o no, con 3 puntos clave de fundamento.
+
+He eliminado toda la narrativa larga y la he reemplazado por un **Veredicto Directo** (Aprobado / Rechazado / Precaución) seguido de una lista de viñetas muy concisas con la acción sugerida (comprar o descartar).
+
+Aquí tienes el código de tu **`app.py`** modificado. Copia y reemplaza todo:
+
+```python
 import streamlit as st
 import requests
 import math
@@ -262,16 +269,15 @@ else:
             if gan > 0: st.success(f"**Tu Ganancia (Bolsillo):**\n### ${gan:,.0f}")
             else: st.error(f"**Pérdida:**\n### ${gan:,.0f}")
 
-        # --- EVALUACIÓN DE MERCADO ---
+        # --- EVALUACIÓN DE MERCADO EJECUTIVA ---
         st.divider()
         st.subheader("🕵️‍♂️ Evaluación de Mercado (API Mercado Libre)")
         
         datos_api = analizar_competencia_api(producto_nombre)
         
         if datos_api == "SIN_RESULTADOS":
-            st.error("🚨 **Cero Resultados:** El título extraído tiene información demasiado específica. Ve al menú izquierdo y acorta el texto manualmente (Ej: deja solo 'Rascador Adhesivo Gatos').")
+            st.error("🚨 **Cero Resultados:** Título demasiado específico. Acorta el texto en el menú izquierdo (Ej: 'Rascador Adhesivo').")
         elif datos_api:
-            st.info(f"🔎 Analizando competidores reales bajo el término: **'{datos_api['termino_buscado']}'**")
             api_c1, api_c2, api_c3 = st.columns(3)
             pct_lid = (datos_api['mercado_lideres'] / datos_api['total_analizados']) * 100
             pct_full = (datos_api['envios_full'] / datos_api['total_analizados']) * 100
@@ -282,46 +288,42 @@ else:
             with api_c3: st.metric("Envíos por Full", f"{pct_full:.0f}%")
             
             st.write("")
-            comp_dif = st.radio("¿Tu producto ofrece un diferencial frente a ellos?", ["Sí (Es un Combo/Kit, mejor calidad)", "No (Es el mismo producto genérico)"])
+            comp_dif = st.radio("¿Tu producto ofrece un diferencial (combo, calidad superior, etc)?", ["Sí", "No"])
             
             st.divider()
             
-            # --- NUEVO REPORTE DEL ANALISTA EXPERTO ---
-            st.subheader("🤖 Reporte del Analista Experto")
-            
-            es_estrella = (mar >= 15) and (mkp >= 30) and ("Sí" in comp_dif)
-            es_riesgoso = (mar < 15) and ("No" in comp_dif or pct_lid > 50)
+            # --- VEREDICTO DIRECTO Y CONCISO ---
+            es_estrella = (mar >= 15) and (mkp >= 30) and (comp_dif == "Sí" or pct_lid <= 50)
+            es_riesgoso = (mar < 15) and (comp_dif == "No" or pct_lid > 50)
             
             if es_estrella:
-                st.success(f"🌟 **EL PRODUCTO ESTRELLA: {producto_nombre.upper()}**\n\nEste es un ejemplo de manual de un producto con alta viabilidad por estas tres razones:")
-                st.markdown("**🛡️ Escudo contra la guerra de precios:** Al indicar que armaste un Kit/Combo o que ofreces una calidad superior, creaste un diferencial claro. El cliente ya no puede comparar tu precio directamente con el del competidor de al lado. Esto anula la sobresaturación y te saca de la pelea por centavos.")
-                st.markdown(f"**📈 Salud Financiera Robusta:** Con tu costo de ${costo:,.0f} y venta a ${precio:,.0f}, sacas un Margen del {mar:.1f}% y un ROI del {mkp:.1f}%. Son números brillantes. Tienes tanto margen que podrías encender campañas de Mercado Ads al 10% o 15% para impulsar la salida de las unidades, y seguirías ganando dinero limpio.")
-                st.markdown("**📦 Ventaja Logística:** Recuerda mantener el paquete lo más pequeño y liviano posible para pagar la tarifa mínima de almacenamiento en Mercado Envíos Full y evitar que los costos logísticos ocultos se coman esta excelente ganancia.")
-            
+                st.success(f"🌟 **VEREDICTO: APROBADO (Producto Estrella)**")
+                st.markdown(f"""
+                **Fundamentos:**
+                * **Rentabilidad:** Margen óptimo ({mar:.1f}%) y alto ROI ({mkp:.1f}%) para soportar costos y publicidad.
+                * **Competencia:** Diferencial activo o mercado con baja saturación ({pct_lid:.0f}% de líderes).
+                * **Acción Sugerida:** **Avanzar con la compra.** Producto viable para escalar.
+                """)
             elif es_riesgoso:
-                st.error(f"🚨 **EL PRODUCTO DE RIESGO: {producto_nombre.upper()}**\n\nRepresenta un escenario peligroso si lo vendes así como viene, sin estrategias adicionales:")
-                st.markdown(f"**⚔️ Alta saturación y competencia:** Estos son artículos genéricos de importación masiva. La primera página de Mercado Libre está minada con un {pct_lid:.0f}% de MercadoLíderes peleando por el precio más bajo. Entrar a vender el mismo producto exacto te obligará a sacrificar tu margen (actualmente en un nivel riesgoso del {mar:.1f}%) solo para lograr tus primeras ventas.")
-                if pct_full >= 40:
-                    st.markdown(f"**🏢 Costos de Bodega Obligatorios:** El {pct_full:.0f}% de tus competidores usa Envíos Full. Estarás obligado a usarlo para no desaparecer en las búsquedas. Si el producto resulta pesado o mal empacado, caerá en categoría 'Mediano/Grande', triplicando tu costo de almacenamiento oculto.")
-                st.markdown("**💡 Cómo salvarlo:** Si vendes el producto solo, es de alto riesgo financiero. Para transformarlo en un buen negocio, debes aplicar la estrategia de diferenciación. Súmale un accesorio de bajo costo relacionado, arma un combo cerrado, y así dejas de competir por centavos, justificando un precio más alto para sanear tu rentabilidad.")
-
+                st.error(f"🚨 **VEREDICTO: RECHAZADO (Alto Riesgo)**")
+                st.markdown(f"""
+                **Fundamentos:**
+                * **Rentabilidad:** Margen ajustado ({mar:.1f}%) frente a comisiones e imprevistos.
+                * **Competencia:** Mercado saturado ({pct_lid:.0f}% de líderes) vendiendo productos idénticos.
+                * **Acción Sugerida:** **Descartar compra o reestructurar.** Requiere armar un Kit para evitar la guerra de precios.
+                """)
             else:
-                st.warning(f"⚖️ **MERCADO EN DISPUTA: {producto_nombre.upper()}**\n\nEs un producto con viabilidad media. No es una mina de oro automática, pero tampoco es un desastre total. Requerirá gestión profesional:")
-                if precio < (prom * 0.8):
-                    st.markdown(f"- 📉 **Guerra de precios:** Estás vendiendo muy barato respecto al promedio del mercado (${prom:,.0f}). Si tu margen del {mar:.1f}% lo soporta, ganarás ventas por precio, pero cuidado con desangrar tu capital ante imprevistos.")
-                elif precio > (prom * 1.2):
-                    st.markdown(f"- 💎 **Precio Premium:** Tu precio es alto respecto al promedio (${prom:,.0f}). El mercado exige que justifiques esto con una calidad visiblemente superior, fotos de estudio o excelente atención.")
-                else:
-                    st.markdown("- 🎯 **Precio Competitivo:** Estás alineado con lo que el mercado está dispuesto a pagar hoy.")
-                
-                if pct_lid > 50:
-                    st.markdown(f"- 🦈 **Competencia Fuerte:** El {pct_lid:.0f}% del nicho lo dominan profesionales. Posicionar orgánicamente será lento. Destina presupuesto a Mercado Ads.")
-                else:
-                    st.markdown("- 🟢 **Oportunidad de Nicho:** Hay baja profesionalización en tu competencia. Mejora las descripciones y fotos de los líderes actuales, y ganarás posiciones fácilmente.")
+                st.warning(f"⚖️ **VEREDICTO: PRECAUCIÓN (Mercado Competitivo)**")
+                st.markdown(f"""
+                **Fundamentos:**
+                * **Rentabilidad:** Números aceptables pero sin gran margen de error logístico.
+                * **Competencia:** Nicho disputado. Obligatorio mejorar fotos y destinar presupuesto a Ads.
+                * **Acción Sugerida:** **Prueba piloto.** Avanzar solo con un stock mínimo para validar salida.
+                """)
         else:
             st.warning("Escribe un producto en el menú izquierdo para escanear a la competencia.")
 
-    # ================= PESTAÑA 2, 3, 4 (Resto intacto) =================
+    # ================= PESTAÑA 2, 3, 4 =================
     with tab2:
         st.markdown("### Planificación Financiera y Stock")
         if gan > 0:
@@ -365,3 +367,5 @@ else:
             df_oc.columns = ['Producto', 'Costo Unitario ($)', 'Cantidad', 'Total a Pagar ($)']
             st.dataframe(df_oc, use_container_width=True, hide_index=True)
             st.download_button("📥 Orden de Compra", data=df_oc.to_csv(index=False).encode('utf-8'), file_name='orden.csv', mime='text/csv')
+
+```
